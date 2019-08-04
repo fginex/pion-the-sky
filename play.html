@@ -1,0 +1,144 @@
+<html>
+
+<head>
+</head>
+
+<style>
+    textarea {
+        width: 500px;
+        min-height: 200px;
+    }
+</style>
+
+<body>
+    <h2>Pion WebRTC - Record and Playback as Stream Example</h2>
+    <br />
+    <button id="connectBtn" onclick="window.doConnect()">Connect</button>
+    <button id="playBtn" onclick="window.doPlay()">Play Stream</button>
+    <button id="disconnectBtn" onclick="window.doDisconnect()">Disconnect</button>
+    <br /><br />
+
+    Video (Streaming playback)<br />
+    <div id="remoteVideos"></div> <br />
+
+    <br /><br />___<br />
+    <div id="logs"></div>
+
+</body>
+
+</html>
+
+<script>
+
+    var log = msg => {
+        document.getElementById('logs').innerHTML += msg + '<br>'
+    }
+
+    var pc
+    var localSessionDescription = null
+    var remoteSessionDescription = null
+    var signalSocket = null
+
+    window.doConnect = () => {
+        if (signalSocket === null || signalSocket === undefined) {
+        }
+        else {
+            log("Please disconnect first.")
+            return
+        }
+
+        startMedia()
+
+        signalSocket = new WebSocket("ws://localhost:8082/ws");
+
+        signalSocket.onopen = function () {
+            log('Connected to signal server.')
+        }
+
+        signalSocket.onmessage = function (e) {
+            evt = JSON.parse(e.data)
+
+            switch (evt.op) {
+                case 'ANSWER':
+                    remoteSessionDescription = evt.data
+                    try {
+                        pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(atob(remoteSessionDescription))))
+                        log('Received Data from signal server. Streaming initiated.')
+                    } catch (e) {
+                        log(e)
+                    }
+                    break
+
+                default:
+                    log("Unknown event received: " + evt.op)
+            }
+        }
+
+        signalSocket.onclose = function () {
+            log('Signal server connection closed.')
+            signalSocket = null
+        }
+    }
+
+    window.doDisconnect = () => {
+        if (signalSocket === null) {
+            log("Not connected.")
+            return
+        }
+        signalSocket.close()
+        pc.close()
+    }
+
+    window.doPlay = () => {
+
+        if (signalSocket === null) {
+            log("Not connected.")
+            return
+        }
+
+        if (localSessionDescription === null) {
+            log("Unable to play - still waiting for local session description from the browser.")
+            return
+        }
+
+        signalSocket.send(JSON.stringify({
+            op: 'PLAY',
+            data: localSessionDescription
+        }));
+        log("Sent local session description to signal server")
+    }
+
+    function startMedia() {
+
+        pc = new RTCPeerConnection({
+            iceServers: [
+                {
+                    urls: 'stun:stun.l.google.com:19302'
+                }
+            ]
+        })
+
+        navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+            .then(stream => {
+                pc.addStream(stream)
+                pc.createOffer().then(d => pc.setLocalDescription(d)).catch(log)
+            }).catch(log)
+
+        pc.oniceconnectionstatechange = e => log(pc.iceConnectionState)
+        pc.onicecandidate = event => {
+            if (event.candidate === null) {
+                localSessionDescription = btoa(JSON.stringify(pc.localDescription))
+                log("Local session description ready. Ready to play streams back when you are.")
+            }
+        }
+        pc.ontrack = function (event) {
+            var el = document.createElement(event.track.kind)
+            el.srcObject = event.streams[0]
+            el.autoplay = true
+            el.controls = false
+
+            document.getElementById('remoteVideos').appendChild(el)
+        }
+
+    }
+</script>

@@ -68,6 +68,9 @@
                         log(e)
                     }
                     break
+                case 'ERROR':
+                    log("Server Error: " + evt.data)
+                    break
 
                 default:
                     log("Unknown event received: " + evt.op)

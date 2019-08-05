@@ -3,16 +3,16 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"sync"
 	"time"
-	"io"
 
 	guuid "github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/pion/webrtc"
 	"github.com/pion/rtp"
+	"github.com/pion/webrtc"
 	"github.com/pion/webrtc/pkg/media/rtpdump"
 )
 
@@ -129,6 +129,10 @@ func (c *PeerClient) eventLoop() {
 
 		switch ev.id {
 		case SmRecord:
+			if c.ct != PctUndecided {
+				c.sendError("Peer client is already either recording or playing. Please disconnect and try again.")
+				continue
+			}
 			c.ct = PctRecord
 			c.localSession = ev.Data
 			go func() {
@@ -141,6 +145,10 @@ func (c *PeerClient) eventLoop() {
 			}()
 
 		case SmPlay:
+			if c.ct != PctUndecided {
+				c.sendError("Peer client is already either recording or playing. Please disconnect and try again.")
+				continue
+			}
 			c.ct = PctPlayback
 			c.localSession = ev.Data
 			go func() {
@@ -291,11 +299,11 @@ func (c *PeerClient) streamVideoToTrack(outputTrack *webrtc.Track) {
 		if c.IsClosed() {
 			return
 		}
-		
+
 		// NOTE: The video clips will not be played back in order since we are just
 		// iterating thru a map.
-		
-		for id,buf := range c.services.Videos { //TODO: Note: not thread safe
+
+		for id, buf := range c.services.Videos { //TODO: Note: not thread safe
 			if c.IsClosed() {
 				return
 			}
@@ -307,14 +315,14 @@ func (c *PeerClient) streamVideoToTrack(outputTrack *webrtc.Track) {
 				log.Println(err)
 				return
 			}
-			
+
 			clipreset := true
-			
+
 			for range ticker.C {
 				if c.IsClosed() {
 					return
 				}
-		
+
 				pkt, err := r.Next()
 				if err == io.EOF {
 					break
@@ -323,14 +331,14 @@ func (c *PeerClient) streamVideoToTrack(outputTrack *webrtc.Track) {
 					log.Println(err)
 					return
 				}
-		
+
 				rtp.Unmarshal(pkt.Payload)
 
 				// ---
 				// NOTE: You can alter the packets here for testing.
 				// ---
 
-				rtp.SSRC = outputTrack.SSRC() 
+				rtp.SSRC = outputTrack.SSRC()
 				rtp.PayloadType = webrtc.DefaultPayloadTypeVP8
 
 				// Adjust the timestamp and sequence for streaming
@@ -343,12 +351,13 @@ func (c *PeerClient) streamVideoToTrack(outputTrack *webrtc.Track) {
 				tsprev = rtp.Timestamp
 
 				if tsbegin == 0 {
-					tsbegin = 1 
+					tsbegin = 1
 					tsmod = tsbegin
 				} else {
 					tsmod = tsmod + tsdelta
 				}
-				rtp.SequenceNumber = seq; seq++
+				rtp.SequenceNumber = seq
+				seq++
 				rtp.Timestamp = tsmod
 
 				err = outputTrack.WriteRTP(&rtp)
@@ -362,3 +371,18 @@ func (c *PeerClient) streamVideoToTrack(outputTrack *webrtc.Track) {
 	}
 }
 
+func (c *PeerClient) sendError(errMsg string) error {
+	log.Printf("Client %s sending error to peer: %s\n", c.id, errMsg)
+
+	msg := SignalMessage{}
+	msg.id = SmError
+	msg.Data = errMsg
+	msg.Marshal()
+
+	err := c.ws.WriteJSON(&msg)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}

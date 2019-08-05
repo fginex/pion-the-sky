@@ -271,7 +271,7 @@ func (c *PeerClient) recordTrack(track *webrtc.Track) error {
 // streamVideoToTrack records raw audio and video packets off the given track
 func (c *PeerClient) streamVideoToTrack(outputTrack *webrtc.Track) {
 	codec := outputTrack.Codec()
-	ticker := time.NewTicker(time.Duration(50) * time.Second / time.Duration(1000))
+	ticker := time.NewTicker(time.Duration(40) * time.Second / time.Duration(1000))
 
 	c.wg.Add(1)
 	defer func() {

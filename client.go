@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/image/vp8"
+
 	guuid "github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/pion/rtp"
@@ -40,6 +42,7 @@ type PeerClient struct {
 	remoteSession string
 
 	services *WebRTCService
+	decoder  *vp8.Decoder
 
 	audioBuf *bytes.Buffer
 	videoBuf *bytes.Buffer
@@ -63,6 +66,7 @@ func CreateNewPeerClient(conn *websocket.Conn, services *WebRTCService) (*PeerCl
 		videoBuf: bytes.NewBuffer([]byte{}),
 
 		services: services,
+		decoder:  vp8.NewDecoder(),
 	}
 
 	log.Printf("Server Peer Client %s created.\n", client.id)
@@ -317,6 +321,7 @@ func (c *PeerClient) streamVideoToTrack(outputTrack *webrtc.Track) {
 			}
 
 			clipreset := true
+			//waitForKeyFrame := true
 
 			for range ticker.C {
 				if c.IsClosed() {
@@ -334,6 +339,10 @@ func (c *PeerClient) streamVideoToTrack(outputTrack *webrtc.Track) {
 
 				rtp.Unmarshal(pkt.Payload)
 
+				if fh, err := c.decodeVP8FrameHeader(&rtp); err == nil && fh.KeyFrame {
+					log.Printf("[KEYFRAME] %s\n", VP8FrameHeaderToString(fh))
+				}
+				
 				// ---
 				// NOTE: You can alter the packets here for testing.
 				// ---
@@ -385,4 +394,22 @@ func (c *PeerClient) sendError(errMsg string) error {
 	}
 
 	return nil
+}
+
+func (c *PeerClient) decodeVP8FrameHeader(pkt *rtp.Packet) (*vp8.FrameHeader, error) {
+	// https://tools.ietf.org/html/rfc6386
+
+	const offset = 4 //TODO: Location of the beginning of the vp8 packet inside the rtp payload.
+
+	b := pkt.Payload[offset:]
+	rdr := bytes.NewBuffer(b)
+
+	c.decoder.Init(rdr, len(b))
+
+	fh, err := c.decoder.DecodeFrameHeader()
+	if err != nil {
+		return nil, err
+	}
+
+	return &fh, nil
 }

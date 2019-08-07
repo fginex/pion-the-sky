@@ -1,14 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"log"
-	"time"
-	"bytes"
 	"math/rand"
+	"time"
 
 	"github.com/pion/rtcp"
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc"
+	"golang.org/x/image/vp8"
 )
 
 // WebRTCService server implementation
@@ -126,14 +128,15 @@ func (svc *WebRTCService) CreatePlaybackConnection(client *PeerClient) error {
 		panic(err)
 	}
 
-	go client.streamVideoToTrack(outputTrack)
-
 	// Handler - Detect connects, disconnects & closures
 	client.pc.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
 		log.Printf("Client %s connection State has changed %s \n", client.id, connectionState.String())
 
 		if connectionState == webrtc.ICEConnectionStateConnected {
 			log.Printf("Client %s connected to webrtc services as peer.\n", client.id)
+
+			go client.streamVideoToTrack(outputTrack)
+
 		} else if connectionState == webrtc.ICEConnectionStateFailed ||
 			connectionState == webrtc.ICEConnectionStateDisconnected ||
 			connectionState == webrtc.ICEConnectionStateClosed {
@@ -152,7 +155,7 @@ func (svc *WebRTCService) CreatePlaybackConnection(client *PeerClient) error {
 
 // SaveVideo stores video packets in a globally available map for streaming playback
 func (svc *WebRTCService) SaveVideo(id string, packets *bytes.Buffer) {
-	svc.Videos[id] = packets 
+	svc.Videos[id] = packets
 	log.Printf("Video saved in memory for Client %s. %d bytes.\n", id, packets.Len())
 	log.Printf("%d total videos in memory.\n", svc.VideoCount())
 }
@@ -160,4 +163,38 @@ func (svc *WebRTCService) SaveVideo(id string, packets *bytes.Buffer) {
 // VideoCount returns the number or stored videos for streaming playback
 func (svc *WebRTCService) VideoCount() int {
 	return len(svc.Videos)
+}
+
+// RTPToString compiles the rtp header fields into a string for logging.
+func RTPToString(pkt *rtp.Packet) string {
+	return fmt.Sprintf("RTP:{Version:%d Padding:%v Extension:%v Marker:%v PayloadOffset:%d PayloadType:%d SequenceNumber:%d Timestamp:%d SSRC:%d CSRC:%s ExtensionProfile:%d ExtensionPayload:%s PayloadLen:%d}",
+		pkt.Version,
+		pkt.Padding,
+		pkt.Extension,
+		pkt.Marker,
+		pkt.PayloadOffset,
+		pkt.PayloadType,
+		pkt.SequenceNumber,
+		pkt.Timestamp,
+		pkt.SSRC,
+		pkt.CSRC,
+		pkt.ExtensionProfile,
+		pkt.ExtensionPayload,
+		len(pkt.Payload),
+	)
+}
+
+// VP8FrameHeaderToString compiles a vp8 video frame header fields into a string for logging.
+func VP8FrameHeaderToString(fh *vp8.FrameHeader) string {
+	return fmt.Sprintf("VP8:{KeyFrame:%v VersionNumber:%d ShowFrame:%v FirstPartitionLen:%d Width:%d Height:%d XScale:%d YScale:%d}",
+		fh.KeyFrame,
+		fh.VersionNumber,
+		fh.ShowFrame,
+		fh.FirstPartitionLen,
+		fh.Width,
+		fh.Height,
+		fh.XScale,
+		fh.YScale,
+	)
+
 }

@@ -3,8 +3,11 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"image"
+	"image/png"
 	"log"
 	"math/rand"
+	"os"
 	"time"
 
 	"github.com/pion/rtcp"
@@ -197,4 +200,21 @@ func VP8FrameHeaderToString(fh *vp8.FrameHeader) string {
 		fh.YScale,
 	)
 
+}
+
+// SaveAsPNG saves the specified image as a png file.
+func SaveAsPNG(img *image.YCbCr, fn string) error {
+	f, err := os.Create(fn)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	err = png.Encode(f, (*image.YCbCr)(img))
+	if err != nil {
+		return err
+	}
+
+	log.Printf("PNG file saved: %s\n", fn)
+	return nil
 }

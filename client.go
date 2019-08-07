@@ -283,7 +283,7 @@ func (c *PeerClient) recordTrack(track *webrtc.Track) error {
 // streamVideoToTrack records raw audio and video packets off the given track
 func (c *PeerClient) streamVideoToTrack(outputTrack *webrtc.Track) {
 	codec := outputTrack.Codec()
-	ticker := time.NewTicker(time.Duration(40) * time.Second / time.Duration(1000))
+	ticker := time.NewTicker(40 * time.Millisecond)
 
 	c.wg.Add(1)
 	defer func() {
@@ -340,8 +340,16 @@ func (c *PeerClient) streamVideoToTrack(outputTrack *webrtc.Track) {
 
 				if fh, err := c.decodeVP8FrameHeader(&rtp); err == nil && fh.KeyFrame {
 					log.Printf("[KEYFRAME] %s\n", VP8FrameHeaderToString(fh))
+					if img, err := c.decoder.DecodeFrame(); err == nil {
+						log.Println("*** FRAME DECODED OK ***")
+						if err = SaveAsPNG(img, fmt.Sprintf("%s_%d.png", c.id, seq)); err != nil {
+							log.Printf("Unable to save PNG: %s\n", err)
+						}
+					} else {
+						log.Printf("Unable to decode the rest of the keyframe: %s\n", err)
+					}
 				}
-				
+
 				// ---
 				// NOTE: You can alter the packets here for testing.
 				// ---
@@ -400,7 +408,8 @@ func (c *PeerClient) decodeVP8FrameHeader(pkt *rtp.Packet) (*vp8.FrameHeader, er
 
 	const offset = 4 //TODO: Location of the beginning of the vp8 packet inside the rtp payload.
 
-	b := pkt.Payload[offset:]
+	b := append(pkt.Payload[offset:], pkt.Payload[offset:]...)
+
 	rdr := bytes.NewBuffer(b)
 
 	c.decoder.Init(rdr, len(b))

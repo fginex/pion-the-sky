@@ -9,7 +9,7 @@ import (
 
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
-	"github.com/pion/webrtc"
+	"github.com/pion/webrtc/v2"
 	"golang.org/x/image/vp8"
 )
 

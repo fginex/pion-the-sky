@@ -14,8 +14,8 @@ import (
 	guuid "github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/pion/rtp"
-	"github.com/pion/webrtc"
-	"github.com/pion/webrtc/pkg/media/rtpdump"
+	"github.com/pion/webrtc/v2"
+	"github.com/pion/webrtc/v2/pkg/media/rtpdump"
 )
 
 // PeerClientType represents the types of signal messages
@@ -321,7 +321,6 @@ func (c *PeerClient) streamVideoToTrack(outputTrack *webrtc.Track) {
 			}
 
 			clipreset := true
-			//waitForKeyFrame := true
 
 			for range ticker.C {
 				if c.IsClosed() {

@@ -122,11 +122,14 @@
 
         navigator.mediaDevices.getUserMedia({ video: true, audio: true })
             .then(stream => {
-                pc.addStream(document.getElementById('previewVideo').srcObject = stream)
+                stream.getTracks().forEach(function (track) {
+                    pc.addTrack(track, document.getElementById('previewVideo').srcObject = stream)
+                })
                 pc.createOffer().then(d => pc.setLocalDescription(d)).catch(log)
             }).catch(log)
 
         pc.oniceconnectionstatechange = e => log(pc.iceConnectionState)
+
         pc.onicecandidate = event => {
             if (event.candidate === null) {
                 localSessionDescription = btoa(JSON.stringify(pc.localDescription))

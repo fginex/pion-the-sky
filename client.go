@@ -153,6 +153,10 @@ func (c *PeerClient) eventLoop() {
 				c.sendError("Peer client is already either recording or playing. Please disconnect and try again.")
 				continue
 			}
+			if c.services.VideoCount() <= 0 {
+				c.sendError("There are no recorded videos to playback. Please record a video first.")
+				continue
+			}
 			c.ct = PctPlayback
 			c.localSession = ev.Data
 			go func() {
@@ -338,23 +342,29 @@ func (c *PeerClient) streamVideoToTrack(outputTrack *webrtc.Track) {
 
 				rtp.Unmarshal(pkt.Payload)
 
-				if fh, err := c.decodeVP8FrameHeader(&rtp); err == nil && fh.KeyFrame {
-					log.Printf("[KEYFRAME] %s\n", VP8FrameHeaderToString(fh))
-					if img, err := c.decoder.DecodeFrame(); err == nil {
-						log.Println("*** FRAME DECODED OK ***")
-						if err = SaveAsPNG(img, fmt.Sprintf("%s_%d.png", c.id, seq)); err != nil {
-							log.Printf("Unable to save PNG: %s\n", err)
-						}
-					} else {
-						log.Printf("Unable to decode the rest of the keyframe: %s\n", err)
-					}
-				}
-
 				// ---
 				// NOTE: You can alter the packets here for testing.
 				// ---
+				//
+				// For example: Decoding the frame header to save i-frames as png files...
+				//
+				// if fh, err := c.decodeVP8FrameHeader(&rtp); err == nil && fh.KeyFrame {
+				// 	log.Printf("[KEYFRAME] %s\n", VP8FrameHeaderToString(fh))
+				// 	if img, err := c.decoder.DecodeFrame(); err == nil {
+				// 		log.Println("*** FRAME DECODED OK ***")
+				// 		if err = SaveAsPNG(img, fmt.Sprintf("%s_%d.png", c.id, seq)); err != nil {
+				// 			log.Printf("Unable to save PNG: %s\n", err)
+				// 		}
+				// 	} else {
+				// 		log.Printf("Unable to decode the rest of the keyframe: %s\n", err)
+				// 	}
+				// }
 
 				rtp.SSRC = outputTrack.SSRC()
+
+				//TODO: need to handle playback in safari
+				// https://github.com/pion/webrtc/issues/716
+				//rtp.PayloadType = 100 <--- this will work in safari
 				rtp.PayloadType = webrtc.DefaultPayloadTypeVP8
 
 				// Adjust the timestamp and sequence for streaming

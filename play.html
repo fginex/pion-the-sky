@@ -19,7 +19,7 @@
     <br /><br />
 
     Video (Streaming playback)<br />
-    <div id="remoteVideos"></div> <br />
+    <video id="remoteVideo" width="160" height="120" autoplay></video> <br />
 
     <br /><br />___<br />
     <div id="logs"></div>
@@ -121,9 +121,11 @@
             ]
         })
 
-        navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+        navigator.mediaDevices.getUserMedia({ video: true, audio: true })
             .then(stream => {
-                pc.addStream(stream)
+                stream.getTracks().forEach(function (track) {
+                    pc.addTrack(track, stream)
+                })
                 pc.createOffer().then(d => pc.setLocalDescription(d)).catch(log)
             }).catch(log)
 
@@ -135,13 +137,13 @@
             }
         }
         pc.ontrack = function (event) {
-            var el = document.createElement(event.track.kind)
-            el.srcObject = event.streams[0]
-            el.autoplay = true
-            el.controls = false
+            // var el = document.createElement(event.track.kind)
+            // el.srcObject = event.streams[0]
+            // el.autoplay = true
+            // el.controls = false
+            // document.getElementById('remoteVideos').appendChild(el)
 
-            document.getElementById('remoteVideos').appendChild(el)
+            document.getElementById('remoteVideo').srcObject = event.streams[0]
         }
-
     }
 </script>

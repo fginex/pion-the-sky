@@ -14,6 +14,7 @@ import (
 	guuid "github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/pion/rtp"
+	"github.com/pion/sdp/v2"
 	"github.com/pion/webrtc/v2"
 	"github.com/pion/webrtc/v2/pkg/media/rtpdump"
 )
@@ -34,12 +35,16 @@ const (
 
 // PeerClient represents a server-side client used as a peer to the browser client.
 type PeerClient struct {
-	id            string
-	ct            PeerClientType
-	pc            *webrtc.PeerConnection
-	ws            *websocket.Conn
+	id string
+	ct PeerClientType
+	pc *webrtc.PeerConnection
+	ws *websocket.Conn
+	pt uint8
+
 	localSession  string
 	remoteSession string
+
+	sdParsed sdp.SessionDescription
 
 	services *WebRTCService
 	decoder  *vp8.Decoder
@@ -192,8 +197,23 @@ func (c *PeerClient) startRemoteSession() error {
 	offer := webrtc.SessionDescription{}
 	Decode(c.localSession, &offer)
 
+	// ---
+	// https://github.com/pion/webrtc/issues/716
+	err := c.sdParsed.Unmarshal([]byte(offer.SDP))
+	if err != nil {
+		return err
+	}
+	vp8 := sdp.Codec{
+		Name: "VP8",
+	}
+	c.pt, err = c.sdParsed.GetPayloadTypeForCodec(vp8)
+	if err != nil {
+		return err
+	}
+	// ---
+
 	// Set the remote session description
-	err := c.pc.SetRemoteDescription(offer)
+	err = c.pc.SetRemoteDescription(offer)
 	if err != nil {
 		return err
 	}
@@ -364,8 +384,7 @@ func (c *PeerClient) streamVideoToTrack(outputTrack *webrtc.Track) {
 
 				//TODO: need to handle playback in safari
 				// https://github.com/pion/webrtc/issues/716
-				//rtp.PayloadType = 100 <--- this will work in safari
-				rtp.PayloadType = webrtc.DefaultPayloadTypeVP8
+				rtp.PayloadType = c.pt
 
 				// Adjust the timestamp and sequence for streaming
 				if clipreset {

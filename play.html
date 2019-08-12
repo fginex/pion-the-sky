@@ -14,8 +14,11 @@
     <h2>Pion WebRTC - Record and Playback as Stream Example</h2>
     <br />
     <button id="connectBtn" onclick="window.doConnect()">Connect</button>
-    <button id="playBtn" onclick="window.doPlay()">Play Stream</button>
     <button id="disconnectBtn" onclick="window.doDisconnect()">Disconnect</button>
+    <pre></pre>
+    <button id="playBtn" onclick="window.doPlay()">Play Stream</button>
+    <button id="codecsBtn" onclick="window.doPrintCodecs()">Available Codecs</button>
+    <button id="sdsBtn" onclick="window.doPrintSDS()">Session Desc</button>
     <br /><br />
 
     Video (Streaming playback)<br />
@@ -29,6 +32,8 @@
 </html>
 
 <script>
+    const capabilitiesA = RTCRtpSender.getCapabilities('audio')
+    const capabilitiesV = RTCRtpSender.getCapabilities('video')
 
     var log = msg => {
         document.getElementById('logs').innerHTML += msg + '<br>'
@@ -137,13 +142,45 @@
             }
         }
         pc.ontrack = function (event) {
-            // var el = document.createElement(event.track.kind)
-            // el.srcObject = event.streams[0]
-            // el.autoplay = true
-            // el.controls = false
-            // document.getElementById('remoteVideos').appendChild(el)
-
             document.getElementById('remoteVideo').srcObject = event.streams[0]
         }
+    }
+
+    function doPrintCodecs() {
+        log("------------")
+        log("Audio Codecs:")
+        log("------------")
+        for (c of capabilitiesA.codecs) {
+            log(JSON.stringify(c, undefined, 2))
+        }
+        log("------------")
+        log("Video Codecs:")
+        log("------------")
+        for (c of capabilitiesV.codecs) {
+            log(JSON.stringify(c, undefined, 2))
+        }
+        log("------------")
+    }
+
+    function doPrintSDS() {
+        log("------------")
+        log("Local Session Description:")
+        log("------------")
+        if (localSessionDescription === null) {
+            log("No local session description yet. Make sure you connect first.")
+            return
+        }
+        localSD = new RTCSessionDescription(JSON.parse(atob(localSessionDescription)))
+        log(JSON.stringify(localSD, undefined, 2))
+
+        log("------------")
+        log("Remote Session Description:")
+        if (remoteSessionDescription === null) {
+            log("No remote session description yet. Make sure you record or play first.")
+            return
+        }
+        remoteSD = new RTCSessionDescription(JSON.parse(atob(remoteSessionDescription)))
+        log(JSON.stringify(remoteSD, undefined, 2))
+        log("------------")
     }
 </script>

@@ -41,8 +41,8 @@ type PeerClient struct {
 	ws *websocket.Conn
 	pt uint8
 
-	localSession  string
-	remoteSession string
+	browserSD string
+	serverSD  string
 
 	sdParsed sdp.SessionDescription
 
@@ -143,7 +143,7 @@ func (c *PeerClient) eventLoop() {
 				continue
 			}
 			c.ct = PctRecord
-			c.localSession = ev.Data
+			c.browserSD = ev.Data
 			go func() {
 				c.wg.Add(1)
 				defer c.wg.Done()
@@ -163,7 +163,7 @@ func (c *PeerClient) eventLoop() {
 				continue
 			}
 			c.ct = PctPlayback
-			c.localSession = ev.Data
+			c.browserSD = ev.Data
 			go func() {
 				c.wg.Add(1)
 				defer c.wg.Done()
@@ -191,22 +191,25 @@ func (c *PeerClient) IsClosed() bool {
 	return false
 }
 
-// startRemoteSession - Completes the session initiation with the client.
-func (c *PeerClient) startRemoteSession() error {
+// startServerSession - Completes the session initiation with the client.
+func (c *PeerClient) startServerSession() error {
 
 	offer := webrtc.SessionDescription{}
-	Decode(c.localSession, &offer)
+	Decode(c.browserSD, &offer)
 
-	// ---
-	// https://github.com/pion/webrtc/issues/716
+	// Some browser codec mappings might not match what
+	// pion has. The work around is to pull the payload type
+	// from the browser session description and modify the
+	// streaming rtp packets accordingly. See this issue for
+	// more details: https://github.com/pion/webrtc/issues/716
 	err := c.sdParsed.Unmarshal([]byte(offer.SDP))
 	if err != nil {
 		return err
 	}
-	vp8 := sdp.Codec{
-		Name: "VP8",
+	codec := sdp.Codec{
+		Name: c.services.vc.Name,
 	}
-	c.pt, err = c.sdParsed.GetPayloadTypeForCodec(vp8)
+	c.pt, err = c.sdParsed.GetPayloadTypeForCodec(codec)
 	if err != nil {
 		return err
 	}
@@ -230,12 +233,14 @@ func (c *PeerClient) startRemoteSession() error {
 		return err
 	}
 
-	// Send back the answer (this peer's session description) in base64 to the browser client
-	c.remoteSession = Encode(answer)
+	// Send back the answer (this peer's session description) in base64 to the browser client.
+	// Note modifications may be made to account for known issues. See ModServerSessionDescription()
+	// for more details.
+	c.serverSD = Encode(ModAnswer(&answer))
 
 	msg := SignalMessage{}
 	msg.id = SmAnswer
-	msg.Data = c.remoteSession
+	msg.Data = c.serverSD
 	msg.Marshal()
 
 	err = c.ws.WriteJSON(&msg)
@@ -266,19 +271,18 @@ func (c *PeerClient) recordTrack(track *webrtc.Track) error {
 	var writer *rtpdump.Writer
 	var err error
 
-	if codec.Name == webrtc.Opus {
-		fmt.Printf("recordTrack client %s Opus Audio track 48 kHz, 2 channels\n", c.id)
+	if track.Kind() == webrtc.RTPCodecTypeAudio {
+		// Audio track
 		writer, err = rtpdump.NewWriter(c.audioBuf, header)
-	} else if codec.Name == webrtc.VP8 {
-		fmt.Printf("recordTrack client %s VP8 Video track\n", c.id)
-		writer, err = rtpdump.NewWriter(c.videoBuf, header)
 	} else {
-		panic(fmt.Sprintf("recordTrack unexpected codec %s", codec.Name))
+		// Video track
+		writer, err = rtpdump.NewWriter(c.videoBuf, header)
 	}
 
 	if err != nil {
 		return err
 	}
+	fmt.Printf("Client %s recording %s track\n", c.id, track.Codec().Name)
 
 	for {
 		if c.IsClosed() {
@@ -382,7 +386,7 @@ func (c *PeerClient) streamVideoToTrack(outputTrack *webrtc.Track) {
 
 				rtp.SSRC = outputTrack.SSRC()
 
-				//TODO: need to handle playback in safari
+				// Work around for playback in safari, specifically for h264.
 				// https://github.com/pion/webrtc/issues/716
 				rtp.PayloadType = c.pt
 

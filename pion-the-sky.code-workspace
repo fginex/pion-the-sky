@@ -17,7 +17,8 @@
 				"mode": "debug",
 				"program": "${workspaceFolder}/main.go",
 				"cwd": "${workspaceFolder}",
-				"env": {}
+				"env": {},
+				"args": ["-port=8082", "-vcodec=vp8"]
 			},
 		]
 	}

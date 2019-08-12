@@ -8,6 +8,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/pion/rtcp"
@@ -21,17 +22,21 @@ type WebRTCService struct {
 	api    *webrtc.API
 	config webrtc.Configuration
 	m      webrtc.MediaEngine
+	ac     *webrtc.RTPCodec
+	vc     *webrtc.RTPCodec
 	Videos map[string]*bytes.Buffer //TODO: Make this a sync.Map
 }
 
 // CreateNewWebRTCService creates a new webrtc server instance
-func CreateNewWebRTCService() (*WebRTCService, error) {
+func CreateNewWebRTCService(videoCodec *webrtc.RTPCodec) (*WebRTCService, error) {
 
 	svc := WebRTCService{Videos: make(map[string]*bytes.Buffer)}
+	svc.ac = webrtc.NewRTPOpusCodec(webrtc.DefaultPayloadTypeOpus, 48000)
+	svc.vc = videoCodec
 
 	// Selected Codecs
-	svc.m.RegisterCodec(webrtc.NewRTPOpusCodec(webrtc.DefaultPayloadTypeOpus, 48000))
-	svc.m.RegisterCodec(webrtc.NewRTPVP8Codec(webrtc.DefaultPayloadTypeVP8, 90000))
+	svc.m.RegisterCodec(svc.ac)
+	svc.m.RegisterCodec(svc.vc)
 
 	svc.api = webrtc.NewAPI(webrtc.WithMediaEngine(svc.m))
 
@@ -43,6 +48,7 @@ func CreateNewWebRTCService() (*WebRTCService, error) {
 		},
 	}
 
+	log.Printf("WebRTC services started with [Audio:%s, Video:%s]\n", svc.ac.Name, svc.vc.Name)
 	return &svc, nil
 }
 
@@ -56,13 +62,16 @@ func (svc *WebRTCService) CreateRecordingConnection(client *PeerClient) error {
 		return err
 	}
 
-	// Set to receive 1 audio track, and 1 video track
-	if _, err = client.pc.AddTransceiver(webrtc.RTPCodecTypeAudio); err != nil {
-		return err
+	// Create receive track
+	inputTrack, err := client.pc.NewTrack(svc.vc.PayloadType, rand.Uint32(), "video", "pion")
+	if err != nil {
+		log.Printf("Client pt=%d pion-pt:%d\n", client.pt, svc.vc.PayloadType)
+		panic(err)
 	}
 
-	if _, err = client.pc.AddTransceiver(webrtc.RTPCodecTypeVideo); err != nil {
-		return err
+	// Add this newly created track to the PeerConnection
+	if _, err = client.pc.AddTrack(inputTrack); err != nil {
+		panic(err)
 	}
 
 	// Handler - Process audio/video as it is received
@@ -102,7 +111,7 @@ func (svc *WebRTCService) CreateRecordingConnection(client *PeerClient) error {
 		}
 	})
 
-	err = client.startRemoteSession()
+	err = client.startServerSession()
 	if err != nil {
 		return err
 	}
@@ -121,7 +130,7 @@ func (svc *WebRTCService) CreatePlaybackConnection(client *PeerClient) error {
 	}
 
 	// Create Track that we send video back to browser on
-	outputTrack, err := client.pc.NewTrack(webrtc.DefaultPayloadTypeVP8, rand.Uint32(), "video", "pion")
+	outputTrack, err := client.pc.NewTrack(svc.vc.PayloadType, rand.Uint32(), "video", "pion")
 	if err != nil {
 		panic(err)
 	}
@@ -148,7 +157,7 @@ func (svc *WebRTCService) CreatePlaybackConnection(client *PeerClient) error {
 		}
 	})
 
-	err = client.startRemoteSession()
+	err = client.startServerSession()
 	if err != nil {
 		return err
 	}
@@ -170,7 +179,7 @@ func (svc *WebRTCService) VideoCount() int {
 
 // RTPToString compiles the rtp header fields into a string for logging.
 func RTPToString(pkt *rtp.Packet) string {
-	return fmt.Sprintf("RTP:{Version:%d Padding:%v Extension:%v Marker:%v PayloadOffset:%d PayloadType:%d SequenceNumber:%d Timestamp:%d SSRC:%d CSRC:%s ExtensionProfile:%d ExtensionPayload:%s PayloadLen:%d}",
+	return fmt.Sprintf("RTP:{Version:%d Padding:%v Extension:%v Marker:%v PayloadOffset:%d PayloadType:%d SequenceNumber:%d Timestamp:%d SSRC:%d CSRC:%v ExtensionProfile:%d ExtensionPayload:%s PayloadLen:%d}",
 		pkt.Version,
 		pkt.Padding,
 		pkt.Extension,
@@ -217,4 +226,13 @@ func SaveAsPNG(img *image.YCbCr, fn string) error {
 
 	log.Printf("PNG file saved: %s\n", fn)
 	return nil
+}
+
+// ModAnswer modifies the remote session description to work around known issues.
+func ModAnswer(sd *webrtc.SessionDescription) *webrtc.SessionDescription {
+
+	// https://stackoverflow.com/questions/47990094/failed-to-set-remote-video-description-send-parameters-on-native-ios
+	sd.SDP = strings.Replace(sd.SDP, "42001f", "42e01f", -1)
+
+	return sd
 }

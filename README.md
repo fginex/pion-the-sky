@@ -34,9 +34,9 @@ I encountered a few issues that required workarounds worth noting. You can read 
 1. Clone the repository 
 2. Build the binary inside the project directory using `go build`
 3. Execute the binary specifying the port and/or video codec:
-
+<br>
 `./pion-the-sky -port=8080 -vcodec=vp8`
-
+<br>
 4. Open a browser and goto `http://localhost:8082`.
 5. Record some videos. You can disconnect and reconnet to start and store a new video without refreshing the page.
 6. Hit the back button (or optionally disconnect and then hit the back button).

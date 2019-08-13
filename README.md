@@ -6,7 +6,8 @@ To demonstrate how pion can be used as a bolt-on intermediary to a proprietary m
 
 # Components
 The application consists of a service that listens on multiple endpoints:
-1. Http requests and websocket connections are accepted on the default port 8082 or the port specified via the `-port=` command-line arg. This is the _Signal Service_. It is used to instantiate a compatible webrtc peer client on the server-side which will be used to either record or playback video depending upon the endpoint path (`/record` and `/play` respectively). When no path is specified (ie `http://localhost:8082`) the index.html will be served allowing you to select either record or play. 
+
+1. Http requests and websocket connections are accepted on the default port 8082 or the port specified via the `-port=` command-line arg. This is the _Signal Service_. It is used to instantiate a compatible webrtc peer client on the server-side which will be used to either record or playback video depending upon the endpoint path (`/record` and `/play` respectively). When no path is specified (ie `http://localhost:8082`) the index.html will be served allowing you to select either record or play.
 <br>
 2. WebRTC Peer Connection Ports. The service will create a server-side peer client used to serve audio and video to the browser client.
 
@@ -32,12 +33,11 @@ I encountered a few issues that required workarounds worth noting. You can read 
 # How to Run the Example...
 1. Clone the repository 
 2. Build the binary inside the project directory using `go build`
-3. Execute the binary specifying the port and/or video codec:<br>
+3. Execute the binary specifying the port and/or video codec:
+
 `./pion-the-sky -port=8080 -vcodec=vp8`
-<br>
-4.  Open a browser and goto `http://localhost:8082`.
+
+4. Open a browser and goto `http://localhost:8082`.
 5. Record some videos. You can disconnect and reconnet to start and store a new video without refreshing the page.
-6. Hit the back button (or optionally disconnect and then hit the back button)
+6. Hit the back button (or optionally disconnect and then hit the back button).
 7. Play the videos you recorded.
-
-

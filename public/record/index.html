@@ -1,14 +1,10 @@
 <html>
-
 <head>
+    <link rel="stylesheet" href="/css/style.css" />
+    <script src="/js/arrays.js"></script>
+    <script src="/js/backendserver.js"></script>
+    <script src="/js/sdp.js"></script>
 </head>
-
-<style>
-    textarea {
-        width: 500px;
-        min-height: 200px;
-    }
-</style>
 
 <body>
     <h2>Pion WebRTC - Record and Playback as Stream Example</h2>
@@ -16,13 +12,17 @@
     <button id="connectBtn" onclick="window.doConnect()">Connect</button>
     <button id="disconnectBtn" onclick="window.doDisconnect()">Disconnect</button>
     <pre></pre>
-    <button id="playBtn" onclick="window.doPlay()">Play Stream</button>
+    <button id="recordBtn" onclick="window.doRecordMe()">Record</button>
     <button id="codecsBtn" onclick="window.doPrintCodecs()">Available Codecs</button>
     <button id="sdsBtn" onclick="window.doPrintSDS()">Session Desc</button>
-    <br /><br />
 
-    Video (Streaming playback)<br />
-    <video id="remoteVideo" width="160" height="120" autoplay></video> <br />
+    <button id="devicesBtn" onclick="window.doListDevices()">List devices</button>
+    <button id="devicesBtn" onclick="window.sdp()">SDP</button>
+
+    <pre>&nbsp;</pre>
+
+    Preview (To be Recorded)<br />
+    <video id="previewVideo" width="640" height="480" autoplay muted></video> <br />
 
     <br /><br />___<br />
     <div id="logs"></div>
@@ -32,8 +32,6 @@
 </html>
 
 <script>
-    const capabilitiesA = RTCRtpSender.getCapabilities('audio')
-    const capabilitiesV = RTCRtpSender.getCapabilities('video')
 
     var log = msg => {
         document.getElementById('logs').innerHTML += msg + '<br>'
@@ -45,16 +43,30 @@
     var signalSocket = null
 
     window.doConnect = () => {
-        if (signalSocket === null || signalSocket === undefined) {
+
+        var webSocketAddress = ""
+        var beAddress = JSON.parse(window.backEndAddress())
+        var address = new URL(beAddress.address)
+
+        if (address.protocol === "https:") {
+            webSocketAddress = `wss://${address.host}/ws`
+        } else if (address.protocol === "http:") {
+            webSocketAddress = `ws://${address.host}/ws`
+        } else {
+            log(`Address ${beAddress.address} does not to be a valid address`)
+            return
         }
-        else {
+
+        console.log("Websocket address is", webSocketAddress)
+
+        if (signalSocket !== null && signalSocket !== undefined) {
             log("Please disconnect first.")
             return
         }
 
         startMedia()
 
-        signalSocket = new WebSocket("ws://localhost:8082/ws");
+        signalSocket = new WebSocket(webSocketAddress)
 
         signalSocket.onopen = function () {
             log('Connected to signal server.')
@@ -66,9 +78,9 @@
             switch (evt.op) {
                 case 'ANSWER':
                     remoteSessionDescription = evt.data
-                    try {
+                    try {                        
                         pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(atob(remoteSessionDescription))))
-                        log('Received Data from signal server. Streaming initiated.')
+                        log('Received Data from signal server. Recording initiated.')
                     } catch (e) {
                         log(e)
                     }
@@ -76,7 +88,6 @@
                 case 'ERROR':
                     log("Server Error: " + evt.data)
                     break
-
                 default:
                     log("Unknown event received: " + evt.op)
             }
@@ -97,7 +108,7 @@
         pc.close()
     }
 
-    window.doPlay = () => {
+    window.doRecordMe = () => {
 
         if (signalSocket === null) {
             log("Not connected.")
@@ -105,15 +116,33 @@
         }
 
         if (localSessionDescription === null) {
-            log("Unable to play - still waiting for local session description from the browser.")
+            log("Unable to record - still waiting for local session description from the browser.")
             return
         }
 
         signalSocket.send(JSON.stringify({
-            op: 'PLAY',
+            op: 'RECORD',
             data: localSessionDescription
         }));
         log("Sent local session description to signal server")
+    }
+
+    window.doListDevices = () => {
+        if (!navigator.mediaDevices?.enumerateDevices) {
+            console.log("enumerateDevices() not supported.");
+          } else {
+            // List cameras and microphones.
+            navigator.mediaDevices.enumerateDevices()
+              .then((devices) => {
+                devices.forEach((device) => {
+                  console.log(`${device.kind}: ${device.label} id = ${device.deviceId}`);
+                  console.log(device);
+                });
+              })
+              .catch((err) => {
+                console.error(`${err.name}: ${err.message}`);
+              });
+          }
     }
 
     function startMedia() {
@@ -126,40 +155,47 @@
             ]
         })
 
-        navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-            .then(stream => {
-                stream.getTracks().forEach(function (track) {
-                    pc.addTrack(track, stream)
-                })
-                pc.createOffer().then(d => pc.setLocalDescription(d)).catch(log)
-            }).catch(log)
+        userMediaSettings = { video: { width: 640, height: 480, facingMode: { exact: "user" } }, audio: true }
+
+        navigator.mediaDevices.getUserMedia(userMediaSettings).then(stream => {
+            document.getElementById('previewVideo').srcObject = stream
+            stream.getTracks().forEach(track => pc.addTrack(track, stream))
+            pc.createOffer().then(d => pc.setLocalDescription(d)).catch(log)
+        }).catch(log)
 
         pc.oniceconnectionstatechange = e => log(pc.iceConnectionState)
+
         pc.onicecandidate = event => {
             if (event.candidate === null) {
                 localSessionDescription = btoa(JSON.stringify(pc.localDescription))
-                log("Local session description ready. Ready to play streams back when you are.")
+                log("Local session description ready. Ready to record when you are.")
             }
-        }
-        pc.ontrack = function (event) {
-            document.getElementById('remoteVideo').srcObject = event.streams[0]
         }
     }
 
     function doPrintCodecs() {
-        log("------------")
-        log("Audio Codecs:")
-        log("------------")
-        for (c of capabilitiesA.codecs) {
-            log(JSON.stringify(c, undefined, 2))
+        var display = (audio, video) => {
+            log("------------")
+            log("Audio Codecs:")
+            log("------------")
+            for (c of audio) {
+                log(JSON.stringify(c, undefined, 2))
+            }
+            log("------------")
+            log("Video Codecs:")
+            log("------------")
+            for (c of video) {
+                log(JSON.stringify(c, undefined, 2))
+            }
+            log("------------")
         }
-        log("------------")
-        log("Video Codecs:")
-        log("------------")
-        for (c of capabilitiesV.codecs) {
-            log(JSON.stringify(c, undefined, 2))
+        if (RTCRtpSender.getCapabilities === undefined) {
+            window.sdp((audio, video) => {
+                display(Object.values(audio), Object.values(video))
+            })
+        } else {
+            display(RTCRtpSender.getCapabilities('audio').codecs, RTCRtpSender.getCapabilities('video').codecs)
         }
-        log("------------")
     }
 
     function doPrintSDS() {

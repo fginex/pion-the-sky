@@ -1,22 +1,19 @@
-package main
+package backend
 
 import (
 	"bytes"
-	"fmt"
-	"io"
 	"log"
-	"net"
 	"sync"
-	"time"
 
 	"golang.org/x/image/vp8"
 
 	guuid "github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/pion/rtp"
 	"github.com/pion/sdp/v2"
-	"github.com/pion/webrtc/v2"
-	"github.com/pion/webrtc/v2/pkg/media/rtpdump"
+	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v3/pkg/media"
+	"github.com/pion/webrtc/v3/pkg/media/ivfwriter"
+	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 )
 
 // PeerClientType represents the types of signal messages
@@ -39,7 +36,7 @@ type PeerClient struct {
 	ct PeerClientType
 	pc *webrtc.PeerConnection
 	ws *websocket.Conn
-	pt uint8
+	// TODO: maybe fix: pt uint8
 
 	browserSD string
 	serverSD  string
@@ -101,6 +98,7 @@ func (c *PeerClient) Close() {
 
 	if c.ct == PctRecord {
 		c.services.SaveVideo(c.id, c.videoBuf)
+		c.services.SaveAudio(c.id, c.audioBuf)
 	}
 
 	log.Printf("Client %s closed.\n", c.id)
@@ -158,7 +156,7 @@ func (c *PeerClient) eventLoop() {
 				c.sendError("Peer client is already either recording or playing. Please disconnect and try again.")
 				continue
 			}
-			if c.services.VideoCount() <= 0 {
+			if !c.services.HasRecordings() {
 				c.sendError("There are no recorded videos to playback. Please record a video first.")
 				continue
 			}
@@ -206,13 +204,16 @@ func (c *PeerClient) startServerSession() error {
 	if err != nil {
 		return err
 	}
-	codec := sdp.Codec{
-		Name: c.services.vc.Name,
-	}
-	c.pt, err = c.sdParsed.GetPayloadTypeForCodec(codec)
-	if err != nil {
-		return err
-	}
+	/*
+		TODO: fix
+			codec := sdp.Codec{
+				Name: c.services.vc.MimeType,
+			}
+			c.pt, err = c.sdParsed.GetPayloadTypeForCodec(codec)
+			if err != nil {
+				return err
+			}
+	*/
 	// ---
 
 	// Set the remote session description
@@ -250,174 +251,39 @@ func (c *PeerClient) startServerSession() error {
 	return nil
 }
 
-// recordTrack records raw audio and video packets off the given track
-func (c *PeerClient) recordTrack(track *webrtc.Track) error {
-	codec := track.Codec()
-
-	c.wg.Add(1)
+func (c *PeerClient) recordTrack(writer media.Writer, track *webrtc.TrackRemote) error {
 	defer func() {
-		log.Printf("Record track loop for %s exiting client id:%s\n", codec.Name, c.id)
-		c.wg.Done()
+		writer.Close()
 	}()
-
-	log.Printf("Recording %s track for client id:%s\n", codec.Name, c.id)
-
-	header := rtpdump.Header{
-		Start:  time.Unix(9, 0).UTC(),
-		Source: net.IPv4(2, 2, 2, 2),
-		Port:   2222,
-	}
-
-	var writer *rtpdump.Writer
-	var err error
-
-	if track.Kind() == webrtc.RTPCodecTypeAudio {
-		// Audio track
-		writer, err = rtpdump.NewWriter(c.audioBuf, header)
-	} else {
-		// Video track
-		writer, err = rtpdump.NewWriter(c.videoBuf, header)
-	}
-
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Client %s recording %s track\n", c.id, track.Codec().Name)
-
 	for {
 		if c.IsClosed() {
 			break
 		}
-
-		rtpPacket, err := track.ReadRTP()
+		rtpPacket, _, err := track.ReadRTP()
 		if err != nil {
 			return err
 		}
-
-		raw, _ := rtpPacket.Marshal()
-
-		dpacket := rtpdump.Packet{
-			Offset:  0,
-			IsRTCP:  false,
-			Payload: raw,
+		if err := writer.WriteRTP(rtpPacket); err != nil {
+			return err
 		}
-
-		writer.WritePacket(dpacket)
 	}
-
 	return nil
 }
 
-// streamVideoToTrack records raw audio and video packets off the given track
-func (c *PeerClient) streamVideoToTrack(outputTrack *webrtc.Track) {
-	codec := outputTrack.Codec()
-	ticker := time.NewTicker(40 * time.Millisecond)
-
-	c.wg.Add(1)
-	defer func() {
-		ticker.Stop()
-		log.Printf("StreamTo track loop for %s exiting client id:%s\n", codec.Name, c.id)
-		c.wg.Done()
-	}()
-
-	rtp := rtp.Packet{}
-	seq := uint16(100)
-	tsbegin := uint32(0)
-	tsmod := uint32(0)
-	tsprev := uint32(0)
-	tsdelta := uint32(0)
-
-	for { // Loop thru the video clips
-		if c.IsClosed() {
-			return
-		}
-
-		// NOTE: The video clips will not be played back in order since we are just
-		// iterating thru a map.
-
-		for id, buf := range c.services.Videos { //TODO: Note: not thread safe
-			if c.IsClosed() {
-				return
-			}
-
-			log.Printf("Started streaming %s to Client %s...\n", id, c.id)
-
-			r, _, err := rtpdump.NewReader(bytes.NewReader(buf.Bytes()))
-			if err != nil {
-				log.Println(err)
-				return
-			}
-
-			clipreset := true
-
-			for range ticker.C {
-				if c.IsClosed() {
-					return
-				}
-
-				pkt, err := r.Next()
-				if err == io.EOF {
-					break
-				}
-				if err != nil {
-					log.Println(err)
-					return
-				}
-
-				rtp.Unmarshal(pkt.Payload)
-
-				// ---
-				// NOTE: You can alter the packets here for testing.
-				// ---
-				//
-				// For example: Decoding the frame header to save i-frames as png files...
-				//
-				// if fh, err := c.decodeVP8FrameHeader(&rtp); err == nil && fh.KeyFrame {
-				// 	log.Printf("[KEYFRAME] %s\n", VP8FrameHeaderToString(fh))
-				// 	if img, err := c.decoder.DecodeFrame(); err == nil {
-				// 		log.Println("*** FRAME DECODED OK ***")
-				// 		if err = SaveAsPNG(img, fmt.Sprintf("%s_%d.png", c.id, seq)); err != nil {
-				// 			log.Printf("Unable to save PNG: %s\n", err)
-				// 		}
-				// 	} else {
-				// 		log.Printf("Unable to decode the rest of the keyframe: %s\n", err)
-				// 	}
-				// }
-
-				rtp.SSRC = outputTrack.SSRC()
-
-				// Work around for playback in safari, specifically for h264.
-				// https://github.com/pion/webrtc/issues/716
-				rtp.PayloadType = c.pt
-
-				// Adjust the timestamp and sequence for streaming
-				if clipreset {
-					clipreset = false
-					tsdelta = 0
-				} else {
-					tsdelta = rtp.Timestamp - tsprev
-				}
-				tsprev = rtp.Timestamp
-
-				if tsbegin == 0 {
-					tsbegin = 1
-					tsmod = tsbegin
-				} else {
-					tsmod = tsmod + tsdelta
-				}
-				rtp.SequenceNumber = seq
-				seq++
-				rtp.Timestamp = tsmod
-
-				err = outputTrack.WriteRTP(&rtp)
-				if err != nil {
-					log.Println(err)
-					return
-				}
-			}
-			log.Printf("Finished streaming %s to Client %s...\n", id, c.id)
-		}
+func (c *PeerClient) recordAudioTrack(track *webrtc.TrackRemote) error {
+	audiowriter, err := oggwriter.NewWith(c.audioBuf, 48000, 2)
+	if err != nil {
+		return err
 	}
+	return c.recordTrack(audiowriter, track)
+}
+
+func (c *PeerClient) recordVideoTrack(track *webrtc.TrackRemote) error {
+	videowriter, err := ivfwriter.NewWith(c.videoBuf)
+	if err != nil {
+		return err
+	}
+	return c.recordTrack(videowriter, track)
 }
 
 func (c *PeerClient) sendError(errMsg string) error {
@@ -434,23 +300,4 @@ func (c *PeerClient) sendError(errMsg string) error {
 	}
 
 	return nil
-}
-
-func (c *PeerClient) decodeVP8FrameHeader(pkt *rtp.Packet) (*vp8.FrameHeader, error) {
-	// https://tools.ietf.org/html/rfc6386
-
-	const offset = 4 //TODO: Location of the beginning of the vp8 packet inside the rtp payload.
-
-	b := append(pkt.Payload[offset:], pkt.Payload[offset:]...)
-
-	rdr := bytes.NewBuffer(b)
-
-	c.decoder.Init(rdr, len(b))
-
-	fh, err := c.decoder.DecodeFrameHeader()
-	if err != nil {
-		return nil, err
-	}
-
-	return &fh, nil
 }

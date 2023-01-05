@@ -13,15 +13,20 @@ import (
 // Server is a basic implementation of a frontend server.
 type Server struct {
 	backEndConfig *configs.BackEndConfig
+	webRTCConfig  *configs.WebRTCConfig
 	logger        hclog.Logger
 }
 
 // ServeListen creates a new frontend server and attempts to listen.
-func ServeListen(backEndConfig *configs.BackEndConfig, frontEndConfig *configs.FrontEndConfig, logger hclog.Logger) error {
+func ServeListen(backEndConfig *configs.BackEndConfig,
+	frontEndConfig *configs.FrontEndConfig,
+	webRTCConfig *configs.WebRTCConfig,
+	logger hclog.Logger) error {
 
 	srv := Server{
 		backEndConfig: backEndConfig,
 		logger:        logger,
+		webRTCConfig:  webRTCConfig,
 	}
 
 	fs := http.FileServer(http.Dir("./public"))
@@ -49,12 +54,14 @@ func ServeListen(backEndConfig *configs.BackEndConfig, frontEndConfig *configs.F
 
 // BackendResponse is the GET /backend response.
 type BackendResponse struct {
-	Address string `json:"address" mapstructure:"address"`
+	Address    string   `json:"address" mapstructure:"address"`
+	ICEServers []string `json:"iceServers" mapstructure:"iceServers"`
 }
 
 func (s *Server) backendHandler(w http.ResponseWriter, r *http.Request) {
 	response := &BackendResponse{
-		Address: s.backEndConfig.ExternalAddress,
+		Address:    s.backEndConfig.ExternalAddress,
+		ICEServers: s.webRTCConfig.ICEServers,
 	}
 	raw, err := json.Marshal(response)
 	if err != nil {

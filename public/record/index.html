@@ -45,26 +45,27 @@
     window.doConnect = () => {
 
         var webSocketAddress = ""
-        var beAddress = JSON.parse(window.backEndAddress())
-        var address = new URL(beAddress.address)
+        var backEndConfig = JSON.parse(window.backEndAddress())
+        var address = new URL(backEndConfig.address)
 
         if (address.protocol === "https:") {
             webSocketAddress = `wss://${address.host}/ws`
         } else if (address.protocol === "http:") {
             webSocketAddress = `ws://${address.host}/ws`
         } else {
-            log(`Address ${beAddress.address} does not to be a valid address`)
+            log(`Address ${backEndConfig.address} does not to be a valid address`)
             return
         }
 
         console.log("Websocket address is", webSocketAddress)
+        console.log("ICE servers", backEndConfig.iceServers)
 
         if (signalSocket !== null && signalSocket !== undefined) {
             log("Please disconnect first.")
             return
         }
 
-        startMedia()
+        startMedia(iceServers)
 
         signalSocket = new WebSocket(webSocketAddress)
 
@@ -150,7 +151,7 @@
         pc = new RTCPeerConnection({
             iceServers: [
                 {
-                    urls: 'stun:stun.l.google.com:19302'
+                    urls: iceServers
                 }
             ]
         })

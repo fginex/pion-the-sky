@@ -2,13 +2,12 @@ package backend
 
 import (
 	"bytes"
-	"log"
+	"fmt"
 	"sync"
-
-	"golang.org/x/image/vp8"
 
 	guuid "github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/hashicorp/go-hclog"
 	"github.com/pion/sdp/v2"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
@@ -36,7 +35,6 @@ type PeerClient struct {
 	ct PeerClientType
 	pc *webrtc.PeerConnection
 	ws *websocket.Conn
-	// TODO: maybe fix: pt uint8
 
 	browserSD string
 	serverSD  string
@@ -44,10 +42,11 @@ type PeerClient struct {
 	sdParsed sdp.SessionDescription
 
 	services *WebRTCService
-	decoder  *vp8.Decoder
 
 	audioBuf *bytes.Buffer
 	videoBuf *bytes.Buffer
+
+	logger hclog.Logger
 
 	closeCh chan struct{}
 
@@ -56,25 +55,20 @@ type PeerClient struct {
 }
 
 // CreateNewPeerClient creates a new server peer client.
-func CreateNewPeerClient(conn *websocket.Conn, services *WebRTCService) (*PeerClient, error) {
-
+func CreateNewPeerClient(conn *websocket.Conn, services *WebRTCService, logger hclog.Logger) (*PeerClient, error) {
+	clientID := guuid.New().String()
 	client := PeerClient{
-		id:      guuid.New().String(),
-		ct:      PctUndecided,
-		ws:      conn,
-		closeCh: make(chan struct{}),
-
+		id:       clientID,
+		ct:       PctUndecided,
+		ws:       conn,
+		closeCh:  make(chan struct{}),
 		audioBuf: bytes.NewBuffer([]byte{}),
 		videoBuf: bytes.NewBuffer([]byte{}),
-
+		logger:   logger.Named(fmt.Sprintf("peer-%s", clientID)).With("client-id", clientID),
 		services: services,
-		decoder:  vp8.NewDecoder(),
 	}
-
-	log.Printf("Server Peer Client %s created.\n", client.id)
-
+	client.logger.Info("Server Peer Client created")
 	go client.eventLoop()
-
 	return &client, nil
 }
 
@@ -101,13 +95,13 @@ func (c *PeerClient) Close() {
 		c.services.SaveAudio(c.id, c.audioBuf)
 	}
 
-	log.Printf("Client %s closed.\n", c.id)
+	c.logger.Info("Client closed")
 }
 
 func (c *PeerClient) eventLoop() {
 	c.wg.Add(1)
 	defer func() {
-		log.Printf("Server Peer Client %s is exiting its event loop.\n", c.id)
+		c.logger.Info("Server Peer Client is exiting event loop")
 		c.wg.Done()
 	}()
 
@@ -121,18 +115,18 @@ func (c *PeerClient) eventLoop() {
 
 		err = c.ws.ReadJSON(&ev)
 		if err != nil {
-			log.Printf("Client %s error %s\n", c.id, err)
+			c.logger.Error("Client failed reading JSON data from WebSocket", "reason", err)
 			go c.Close()
 			return
 		}
 
 		err = ev.Unmarshal()
 		if err != nil {
-			log.Printf("Client %s error receiving signal event %s\n", c.id, err)
+			c.logger.Error("Client failed receiving signal event", "reason", err)
 			continue
 		}
 
-		log.Printf("Client %s received event: %s\n", c.id, ev.Op)
+		c.logger.Info("Client received an event", "event", ev.Op)
 
 		switch ev.id {
 		case SmRecord:
@@ -147,7 +141,7 @@ func (c *PeerClient) eventLoop() {
 				defer c.wg.Done()
 				err = c.services.CreateRecordingConnection(c)
 				if err != nil {
-					log.Printf("Client %s error %s\n", c.id, err)
+					c.logger.Error("Client recording error", "reason", err)
 				}
 			}()
 
@@ -167,7 +161,7 @@ func (c *PeerClient) eventLoop() {
 				defer c.wg.Done()
 				err = c.services.CreatePlaybackConnection(c)
 				if err != nil {
-					log.Printf("Client %s error %s\n", c.id, err)
+					c.logger.Error("Client playback error", "reason", err)
 				}
 			}()
 		}
@@ -287,7 +281,7 @@ func (c *PeerClient) recordVideoTrack(track *webrtc.TrackRemote) error {
 }
 
 func (c *PeerClient) sendError(errMsg string) error {
-	log.Printf("Client %s sending error to peer: %s\n", c.id, errMsg)
+	c.logger.Error("Client reporting error to a peer", "error", errMsg)
 
 	msg := SignalMessage{}
 	msg.id = SmError

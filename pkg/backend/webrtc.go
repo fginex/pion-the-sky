@@ -18,6 +18,7 @@ import (
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
 	"github.com/pion/webrtc/v3/pkg/media/ivfreader"
+	"github.com/radekg/boos/configs"
 	"golang.org/x/image/vp8"
 )
 
@@ -43,7 +44,7 @@ type WebRTCService struct {
 }
 
 // CreateNewWebRTCService creates a new webrtc server instance
-func CreateNewWebRTCService(logger hclog.Logger) (*WebRTCService, error) {
+func CreateNewWebRTCService(webRTCConfig *configs.WebRTCConfig, logger hclog.Logger) (*WebRTCService, error) {
 
 	svc := WebRTCService{
 		mediaEngine:    &webrtc.MediaEngine{},
@@ -74,7 +75,7 @@ func CreateNewWebRTCService(logger hclog.Logger) (*WebRTCService, error) {
 	svc.config = webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{
-				URLs: []string{"stun:stun.l.google.com:19302"},
+				URLs: webRTCConfig.ICEServers,
 			},
 		},
 	}

@@ -23,12 +23,14 @@ var (
 	backEndConfig  = configs.NewBackEndConfig()
 	frontEndConfig = configs.NewFrontEndConfig()
 	logConfig      = configs.NewLoggingConfig()
+	webRTCConfig   = configs.NewWebRTCConfig()
 )
 
 func initFlags() {
 	Command.Flags().AddFlagSet(backEndConfig.FlagSet())
 	Command.Flags().AddFlagSet(frontEndConfig.FlagSet())
 	Command.Flags().AddFlagSet(logConfig.FlagSet())
+	Command.Flags().AddFlagSet(webRTCConfig.FlagSet())
 }
 
 func init() {
@@ -41,7 +43,7 @@ func run(cobraCommand *cobra.Command, _ []string) {
 
 func processCommand() int {
 	logger := logConfig.NewLogger("backend")
-	if err := be.ServeListen(backEndConfig, frontEndConfig, logger); err != nil {
+	if err := be.ServeListen(backEndConfig, frontEndConfig, webRTCConfig, logger); err != nil {
 		logger.Error("Error binding backend server", "reason", err)
 		return 1
 	}

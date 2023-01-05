@@ -13,33 +13,18 @@ import (
 // In this simple case the peer is the server.
 type Server struct {
 	frontEndConfig *configs.FrontEndConfig
+	webRTCConfig   *configs.WebRTCConfig
 	logger         hclog.Logger
 	services       *WebRTCService
 }
 
 // ServeListen creates a new frontend server and attempts to listen.
-func ServeListen(backendConfig *configs.BackEndConfig, frontEndConfig *configs.FrontEndConfig, logger hclog.Logger) error {
+func ServeListen(backEndConfig *configs.BackEndConfig,
+	frontEndConfig *configs.FrontEndConfig,
+	webRTCConfig *configs.WebRTCConfig,
+	logger hclog.Logger) error {
 
-	/*
-		var videoCodec *webrtc.RTPCodec
-
-		switch strings.ToUpper(*vcodec) {
-		case "H264":
-			videoCodec = webrtc.NewRTPH264Codec(webrtc.DefaultPayloadTypeH264, 90000)
-		case "VP8":
-			videoCodec = webrtc.NewRTPVP8Codec(webrtc.DefaultPayloadTypeVP8, 90000)
-
-		//TODO: Issues when running with vp8 (Payload type 98. Getting error: codec payloader not set)
-		//case "VP9":
-		//	videoCodec = webrtc.NewRTPVP9Codec(webrtc.DefaultPayloadTypeVP9, 90000)
-
-		default:
-			log.Fatal(fmt.Errorf("unsupported or unrecognized video codec: %s", *vcodec))
-			return
-		}
-	*/
-
-	services, err := CreateNewWebRTCService(logger.Named("webrtc") /* TODO: restore videoCodec */)
+	services, err := CreateNewWebRTCService(webRTCConfig, logger.Named("webrtc"))
 	if err != nil {
 		logger.Error("Failed creating WebRTC service", "reason", err)
 		return err
@@ -49,13 +34,14 @@ func ServeListen(backendConfig *configs.BackEndConfig, frontEndConfig *configs.F
 		frontEndConfig: frontEndConfig,
 		logger:         logger,
 		services:       services,
+		webRTCConfig:   webRTCConfig,
 	}
 
 	http.HandleFunc("/ws", srv.wsHandler)
 
 	chanErr := make(chan error, 1)
 	go func() {
-		err := http.ListenAndServe(backendConfig.BindAddress, nil)
+		err := http.ListenAndServe(backEndConfig.BindAddress, nil)
 		if err != nil {
 			chanErr <- err
 		}
@@ -64,7 +50,7 @@ func ServeListen(backendConfig *configs.BackEndConfig, frontEndConfig *configs.F
 	case err := <-chanErr:
 		return err
 	case <-time.After(time.Millisecond * 500):
-		srv.logger.Info("Backend server started and listening on", "backend-bind-address", backendConfig.BindAddress)
+		srv.logger.Info("Backend server started and listening on", "backend-bind-address", backEndConfig.BindAddress)
 		// we are golden
 	}
 	return nil
@@ -84,7 +70,7 @@ func (s *Server) wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO: keep a map of clients so connections can be managed properly.
-	_, err = CreateNewPeerClient(conn, s.services)
+	_, err = CreateNewPeerClient(conn, s.services, s.logger)
 	if err != nil {
 		s.logger.Error("wsHandle error", "reason", err)
 	}

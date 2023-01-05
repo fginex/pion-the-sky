@@ -5,11 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image"
-	"image/png"
 	"io"
-	"log"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -39,8 +35,6 @@ type WebRTCService struct {
 	api         *webrtc.API
 	config      webrtc.Configuration
 	mediaEngine *webrtc.MediaEngine
-	ac          webrtc.RTPCodecParameters
-	vc          webrtc.RTPCodecParameters
 
 	logger hclog.Logger
 
@@ -57,14 +51,6 @@ func CreateNewWebRTCService(logger hclog.Logger) (*WebRTCService, error) {
 		recordings:     map[string]*audioVideoRecording{},
 		logger:         logger,
 	}
-	svc.ac = webrtc.RTPCodecParameters{
-		RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 0, SDPFmtpLine: "", RTCPFeedback: nil},
-		PayloadType:        111,
-	}
-	svc.vc = webrtc.RTPCodecParameters{
-		RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000, Channels: 0, SDPFmtpLine: "", RTCPFeedback: nil},
-		PayloadType:        96,
-	}
 
 	// Create a InterceptorRegistry. This is the user configurable RTP/RTCP Pipeline.
 	// This provides NACKs, RTCP Reports and other features. If you use `webrtc.NewPeerConnection`
@@ -74,17 +60,12 @@ func CreateNewWebRTCService(logger hclog.Logger) (*WebRTCService, error) {
 
 	// Use the default set of Interceptors
 	if err := webrtc.RegisterDefaultInterceptors(svc.mediaEngine, i); err != nil {
-		fmt.Println("Failed registering an interceptor registry: ", err)
+		svc.logger.Error("Failed registering an interceptor registry", "reason", err)
 		return nil, err
 	}
 
-	// Selected Codecs
-	if err := svc.mediaEngine.RegisterCodec(svc.ac, webrtc.RTPCodecTypeAudio); err != nil {
-		log.Println("Audio codec setup error: ", err)
-		return nil, err
-	}
-	if err := svc.mediaEngine.RegisterCodec(svc.vc, webrtc.RTPCodecTypeVideo); err != nil {
-		log.Println("Video codec setup error: ", err)
+	if err := svc.mediaEngine.RegisterDefaultCodecs(); err != nil {
+		svc.logger.Error("Failed registering default codecs", "reason", err)
 		return nil, err
 	}
 
@@ -98,7 +79,7 @@ func CreateNewWebRTCService(logger hclog.Logger) (*WebRTCService, error) {
 		},
 	}
 
-	log.Printf("WebRTC services started with [Audio:%s, Video:%s]\n", svc.ac.MimeType, svc.vc.MimeType)
+	svc.logger.Info("WebRTC services started with default codecs")
 	return &svc, nil
 }
 
@@ -114,16 +95,16 @@ func (svc *WebRTCService) CreateRecordingConnection(client *PeerClient) error {
 
 	// Allow us to receive 1 audio track, and 1 video track
 	if _, err = client.pc.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio); err != nil {
-		log.Println("Failed adding transciever from audio kind: ", err)
+		svc.logger.Error("Failed adding transciever from audio kind", "reason", err)
 		return err
 	} else if _, err = client.pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo); err != nil {
-		log.Println("Failed adding transciever from video kind: ", err)
+		svc.logger.Error("Failed adding transciever from video kind", "reason", err)
 		return err
 	}
 
 	// Handler - Process audio/video as it is received
 	client.pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		log.Printf("Client %s %s track ready\n", client.id, track.Codec().MimeType)
+		svc.logger.Info("Client track ready", "client", client.id, "codec", track.Codec().MimeType)
 		// Send a PLI on an interval so that the publisher is pushing a keyframe every rtcpPLIInterval
 		go func() {
 			ticker := time.NewTicker(time.Second * 3)
@@ -142,10 +123,10 @@ func (svc *WebRTCService) CreateRecordingConnection(client *PeerClient) error {
 		go func() {
 			codec := track.Codec()
 			if strings.EqualFold(codec.MimeType, webrtc.MimeTypeOpus) {
-				log.Println("Got Opus track, saving to disk as output.opus (48 kHz, 2 channels)")
+				svc.logger.Info("Got Opus track, saving to disk as output.opus (48 kHz, 2 channels)")
 				client.recordAudioTrack(track)
 			} else if strings.EqualFold(codec.MimeType, webrtc.MimeTypeVP8) {
-				log.Println("Got VP8 track, saving to disk as output.ivf")
+				svc.logger.Info("Got VP8 track, saving to disk as output.ivf")
 				client.recordVideoTrack(track)
 			}
 		}()
@@ -153,13 +134,15 @@ func (svc *WebRTCService) CreateRecordingConnection(client *PeerClient) error {
 
 	// Handler - Detect connects, disconnects & closures
 	client.pc.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
-		log.Printf("Client %s connection State has changed %s \n", client.id, connectionState.String())
+		svc.logger.Info("Client connection State has changed",
+			"client", client.id,
+			"connection-state", connectionState.String())
 		if connectionState == webrtc.ICEConnectionStateConnected {
-			log.Printf("Client %s connected to webrtc services as peer.\n", client.id)
+			svc.logger.Info("Client connected to webrtc services as peer", "client", client.id)
 		} else if connectionState == webrtc.ICEConnectionStateFailed ||
 			connectionState == webrtc.ICEConnectionStateDisconnected ||
 			connectionState == webrtc.ICEConnectionStateClosed {
-			log.Printf("Client %s disconnected from webrtc services as peer.\n", client.id)
+			svc.logger.Info("Client disconnected from webrtc services as peer", "client", client.id)
 		}
 	})
 
@@ -191,7 +174,7 @@ func (svc *WebRTCService) CreatePlaybackConnection(client *PeerClient) error {
 
 		if hasVideo {
 
-			log.Println("I have an AV recording: ", id, "video length: ", avr.video.Len())
+			svc.logger.Info("I have an AV data", "data-id", id, "video-length", avr.video.Len())
 
 			// Create a video track
 			videoTrack, videoTrackErr := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8}, "video", "pion")
@@ -253,7 +236,7 @@ func (svc *WebRTCService) CreatePlaybackConnection(client *PeerClient) error {
 
 		if hasAudio {
 
-			log.Println("I have an AV recording: ", id, "audio length: ", avr.audio.Len())
+			svc.logger.Info("I have an AV data", "data-id", id, "audio-length", avr.audio.Len())
 
 			// Create a audio track
 			audioTrack, audioTrackErr := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, "audio", "pion")
@@ -298,7 +281,7 @@ func (svc *WebRTCService) CreatePlaybackConnection(client *PeerClient) error {
 				for ; true; <-ticker.C {
 					pageData, pageHeader, oggErr := ogg.ParseNextPage()
 					if errors.Is(oggErr, io.EOF) {
-						fmt.Printf("All audio pages parsed and sent")
+						svc.logger.Info("All audio pages parsed and sent")
 						ticker.Stop()
 						break
 					}
@@ -324,7 +307,7 @@ func (svc *WebRTCService) CreatePlaybackConnection(client *PeerClient) error {
 		// This will notify you when the peer has connected/disconnected
 
 		client.pc.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
-			fmt.Printf("Connection State has changed %s \n", connectionState.String())
+			svc.logger.Info("Connection state has changed", "new-state", connectionState.String())
 			if connectionState == webrtc.ICEConnectionStateConnected {
 				iceConnectedCtxCancel()
 			}
@@ -333,13 +316,13 @@ func (svc *WebRTCService) CreatePlaybackConnection(client *PeerClient) error {
 		// Set the handler for Peer connection state
 		// This will notify you when the peer has connected/disconnected
 		client.pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
-			fmt.Printf("Peer Connection State has changed: %s\n", s.String())
+			svc.logger.Info("Peer Connection state has changed", "new-state", s.String())
 
 			if s == webrtc.PeerConnectionStateFailed {
 				// Wait until PeerConnection has had no network activity for 30 seconds or another failure. It may be reconnected using an ICE Restart.
 				// Use webrtc.PeerConnectionStateDisconnected if you are interested in detecting faster timeout.
 				// Note that the PeerConnection may come back from PeerConnectionStateDisconnected.
-				fmt.Println("Peer Connection has gone to failed exiting")
+				svc.logger.Error("Peer Connection has gone to failed")
 				//os.Exit(0)
 			}
 		})
@@ -370,16 +353,14 @@ func (svc *WebRTCService) ensureAudioVideoRecording(id string) int {
 func (svc *WebRTCService) SaveAudio(id string, packets *bytes.Buffer) {
 	nrecordings := svc.ensureAudioVideoRecording(id)
 	svc.recordings[id].audio = packets
-	log.Printf("Audio saved in memory for Client %s. %d bytes.\n", id, packets.Len())
-	log.Printf("%d total recordings in memory.\n", nrecordings)
+	svc.logger.Info("Audio saved in memory for client", "client-id", id, "bytes", packets.Len(), "num-recordings", nrecordings)
 }
 
 // SaveVideo stores video packets in a globally available map for streaming playback
 func (svc *WebRTCService) SaveVideo(id string, packets *bytes.Buffer) {
 	nrecordings := svc.ensureAudioVideoRecording(id)
 	svc.recordings[id].video = packets
-	log.Printf("Video saved in memory for Client %s. %d bytes.\n", id, packets.Len())
-	log.Printf("%d total recordings in memory.\n", nrecordings)
+	svc.logger.Info("Video saved in memory for client", "client-id", id, "bytes", packets.Len(), "num-recordings", nrecordings)
 }
 
 // HasRecordings returns true if there is at least one recording available for playback.
@@ -421,6 +402,7 @@ func VP8FrameHeaderToString(fh *vp8.FrameHeader) string {
 
 }
 
+/*
 // SaveAsPNG saves the specified image as a png file.
 func SaveAsPNG(img *image.YCbCr, fn string) error {
 	f, err := os.Create(fn)
@@ -434,15 +416,14 @@ func SaveAsPNG(img *image.YCbCr, fn string) error {
 		return err
 	}
 
-	log.Printf("PNG file saved: %s\n", fn)
+	/// log.Printf("PNG file saved: %s\n", fn)
 	return nil
 }
+*/
 
 // ModAnswer modifies the remote session description to work around known issues.
 func ModAnswer(sd *webrtc.SessionDescription) *webrtc.SessionDescription {
-
 	// https://stackoverflow.com/questions/47990094/failed-to-set-remote-video-description-send-parameters-on-native-ios
 	sd.SDP = strings.Replace(sd.SDP, "42001f", "42e01f", -1)
-
 	return sd
 }

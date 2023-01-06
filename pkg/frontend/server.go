@@ -29,7 +29,7 @@ func ServeListen(backEndConfig *configs.BackEndConfig,
 		webRTCConfig:  webRTCConfig,
 	}
 
-	fs := http.FileServer(http.Dir("./public"))
+	fs := http.FileServer(http.Dir("./ui/build"))
 	http.HandleFunc("/backend", srv.backendHandler)
 	http.Handle("/", fs)
 

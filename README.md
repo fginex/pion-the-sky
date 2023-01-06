@@ -33,3 +33,12 @@ go run ./... all
 2. Record a video at `http://localhost:8083/record`.
 3. Hit the back button (or optionally disconnect and then hit the back button).
 4. Play the videos you recorded.
+
+# User interface
+
+```sh
+CXX=clang++ yarn global add create-react-app
+yarn create react-app ui --template typescript
+cd ui/
+yarn add -D cra-build-watch
+```

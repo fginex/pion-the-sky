@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-enum SignalOp {
+export enum SignalOp {
 	Undefined = "UNDEFINED",
 	Record = "RECORD",
 	Answer = "ANSWER",
@@ -8,8 +8,8 @@ enum SignalOp {
 	Error = "ERROR",
 }
 
-interface SignalMessage {
-    id: number
+export interface SignalMessage {
+    id?: number
     op: SignalOp
     data: string
 }
@@ -33,12 +33,16 @@ export interface SignalSocketError {
 
 export interface SignalingSocketProps {
     webSocketAddress: string | null
-    onConnected?: () => void
+    onConnected?: (client: SignalingClient) => void
     onConnectionProgress?: (status: SignalSocketConnectStatus) => void
     onDisconnected?: () => void
     onError?: (error: SignalSocketError) => void
     onRemoteSDP: (sdp: string) => void
     onServerError?: (error: SignalSocketError) => void
+}
+
+export interface SignalingClient {
+    sendMessage: (message: SignalMessage) => void
 }
 
 export const Signaling = (props: SignalingSocketProps) => {
@@ -50,6 +54,10 @@ export const Signaling = (props: SignalingSocketProps) => {
         if (props.onConnectionProgress !== undefined) {
             props.onConnectionProgress({state: state})
         }
+    }
+
+    const sendMessage = (message: SignalMessage) => {
+        signalSocket?.send(JSON.stringify(message))
     }
 
     useEffect(() => {
@@ -83,7 +91,9 @@ export const Signaling = (props: SignalingSocketProps) => {
             signalSocket.onopen = (ev: Event): any => {
                 setConnecting(false)
                 if (props.onConnected !== undefined) {
-                    props.onConnected()
+                    props.onConnected({
+                        sendMessage: sendMessage,
+                    })
                 }
             }
 

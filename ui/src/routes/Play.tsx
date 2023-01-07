@@ -1,21 +1,28 @@
 import React, { useEffect, useState } from 'react';
 
 import { loadBackendData, getWebsocketAddress, BackEndData } from '../backend/backend'
-import { Signaling, SignalSocketConnectStatus, SignalSocketError } from '../signaling/signaling'
+import { Media, MediaClient, MediaError, RTCSessionDescriptionAsString } from '../media/media';
+import { Signaling, SignalingClient, SignalOp, SignalSocketConnectStatus, SignalSocketError } from '../signaling/signaling'
+
+import * as O from 'fp-ts/Option'
 
 const Play = () => {
 
     const [webSocketAddress, setWebsocketAddress] = useState<string | null>(null)
-    let lastKnownBackEndData: BackEndData | null = null
+    const [lastKnownBackEndData,setLastKnownBackEndData] = useState<BackEndData | null>(null)
+    const [signalingClient, setSignalingClient] = useState<SignalingClient | null>(null)
+    const [mediaClient, setMediaClient] = useState<MediaClient | null>(null)
+
+    const [localSDP, setLocalSDP] = useState<string>("")
 
     const doConnect = () => {
 
         loadBackendData().then(response => {
             console.log("Loaded backend data", response.data)
-            lastKnownBackEndData = response.data
-            const wsAddress = getWebsocketAddress(lastKnownBackEndData)
+            setLastKnownBackEndData(response.data)
+            const wsAddress = getWebsocketAddress(response.data)
             if (wsAddress === null) {
-                console.log(`Address ${lastKnownBackEndData.address} does not to be a valid address`)
+                console.log(`Address ${response.data.address} does not to be a valid address`)
             } else {
                 console.log("Loaded websocket address", wsAddress)
                 setWebsocketAddress(wsAddress)
@@ -29,7 +36,7 @@ const Play = () => {
     }
 
     const doPlay = () => {
-
+        signalingClient?.sendMessage({op: SignalOp.Play, data: localSDP})
     }
 
     const doPrintCodecs = () => {
@@ -40,8 +47,16 @@ const Play = () => {
         
     }
 
-    const onSignalSocketConnected = () => {
-        console.log("Signal socket: connected")
+    const onSignalSocketConnected = (client: SignalingClient) => {
+        
+        console.log("Signal socket: connected", mediaClient, lastKnownBackEndData)
+        setSignalingClient(client)
+
+        if (mediaClient !== null && lastKnownBackEndData !== null && lastKnownBackEndData.iceServers !== undefined) {
+            console.log("Calling all media")
+            mediaClient.startMedia(lastKnownBackEndData.iceServers)
+        }
+
     }
     const onSignalSocketDisconnected = () => {
         console.log("Signal socket: disconnected")
@@ -56,8 +71,28 @@ const Play = () => {
         console.log("Signal socket: received data from signal server, streaming initiated, SDP", sdp)
     }
 
+    // -- Media 
+
+    const onMediaClient = (client: MediaClient) => {
+        console.log("On media client", client)
+        setMediaClient(client)
+    }
+
+    const onMediaError = (e: MediaError) => {
+
+    }
+
+    const onMediaICECandidate = (candidate: RTCIceCandidate, sdp: RTCSessionDescription, sdpasstr: RTCSessionDescriptionAsString) => {
+        setLocalSDP(sdpasstr())
+        console.log(" ===========> ", sdpasstr())
+    }
+
     return (
         <>
+            <Media onMediaClient={onMediaClient}
+                onMediaError={onMediaError}
+                onICECandidate={onMediaICECandidate} />
+
             <Signaling webSocketAddress={webSocketAddress}
                 onConnected={onSignalSocketConnected}
                 onConnectionProgress={onSignalSocketConnectionProgress}

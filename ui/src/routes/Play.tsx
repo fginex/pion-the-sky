@@ -1,19 +1,21 @@
 import React, { useEffect, useState } from 'react';
 
-import { loadBackendData, getWebsocketAddress } from '../backend/backend'
+import { loadBackendData, getWebsocketAddress, BackEndData } from '../backend/backend'
 import { Signaling, SignalSocketConnectStatus, SignalSocketError } from '../signaling/signaling'
 
 const Play = () => {
 
     const [webSocketAddress, setWebsocketAddress] = useState<string | null>(null)
+    let lastKnownBackEndData: BackEndData | null = null
 
     const doConnect = () => {
 
         loadBackendData().then(response => {
             console.log("Loaded backend data", response.data)
-            const wsAddress = getWebsocketAddress(response.data)
+            lastKnownBackEndData = response.data
+            const wsAddress = getWebsocketAddress(lastKnownBackEndData)
             if (wsAddress === null) {
-                console.log(`Address ${response.data.address} does not to be a valid address`)
+                console.log(`Address ${lastKnownBackEndData.address} does not to be a valid address`)
             } else {
                 console.log("Loaded websocket address", wsAddress)
                 setWebsocketAddress(wsAddress)

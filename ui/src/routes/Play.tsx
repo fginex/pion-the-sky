@@ -1,93 +1,107 @@
 import React, { useEffect, useState } from 'react';
 
 import { getBackendConfig, BackendConfig } from '../backend/backend'
-import { Media, MediaClient, MediaError, RTCSessionDescriptionAsString } from '../media/media';
-import { Signaling, SignalingClient, SignalOp, SignalSocketConnectStatus, SignalSocketError } from '../signaling/signaling'
-
-import * as O from 'fp-ts/Option'
+import { ConnectedPeerClient, peerConnectionWithMedia } from '../media/media2';
+import { readCodecs } from '../media/sdp';
+import { signaling, ConnectedSignaling } from '../signaling/signaling'
 
 const Play = () => {
 
-    const [webSocketAddress, setWebsocketAddress] = useState<string | null>(null)
     const [backendConfig, setBackendConfig] = useState<BackendConfig | null>(null)
-    const [signalingClient, setSignalingClient] = useState<SignalingClient | null>(null)
-    const [mediaClient, setMediaClient] = useState<MediaClient | null>(null)
+    const [connectedSignaling, setConnectedSignaling] = useState<ConnectedSignaling | null>(null)
+    const [connectedPeerClient, setConnectedPeerClient] = useState<ConnectedPeerClient | null>(null)
 
-    const [localSDP, setLocalSDP] = useState<string>("")
+
+    // const [mediaClient, setMediaClient] = useState<MediaClient | null>(null)
+    // const [localSDP, setLocalSDP] = useState<string>("")
 
     const doConnect = () => getBackendConfig()
-        .then(config => setBackendConfig(config))
+        .then(config => signaling(config)
+            .then(result => {
+                console.log("Signaling connected")
+                setBackendConfig(config)
+                setConnectedSignaling(result)
+            })
+            .catch(e => console.log("Failed connecting signaling", e))
+        )
         .catch(e => console.log("Failed fetching backend config", e))
 
     const doDisconnect = () => {
-        setWebsocketAddress(null)
+        if (connectedSignaling !== null) {
+            connectedSignaling.disconnect()
+                .then(() => console.log("Signaling disconnected"))
+                .catch(e => console.log("Signaling disconnect error", e))
+                .finally(() => setConnectedSignaling(null))
+        } else {
+            console.log("Signaling not connected")
+        }
+
+        if (connectedPeerClient !== null) {
+            connectedPeerClient.disconnectMedia()
+                .then(() => console.log("Media disconnected"))
+                .catch(e => console.log("Media disconnect error", e))
+                .finally(() => setConnectedPeerClient(null))
+        } else {
+            console.log("Media not connected")
+        }
     }
 
     const doPlay = () => {
-        signalingClient?.sendMessage({op: SignalOp.Play, data: localSDP})
+        if (backendConfig !== null) {
+            if (connectedSignaling !== null) {
+                peerConnectionWithMedia({iceServers: backendConfig.config.iceServers})
+                    .then(result => result.connectMedia()
+                        .then(() => {
+                            console.log("Peer client is now connected", result)
+                            const ld = result.localDescription()
+                            if (ld !== null) {
+                                connectedSignaling.play(ld.sdp)
+                                    .then(() => {
+                                        console.log("Playing...")
+                                        setConnectedPeerClient(result)
+                                    })
+                                    .catch(err => {
+                                        console.log("Could not play media, reason:", err)
+                                        result.disconnectMedia().finally(() => setConnectedPeerClient(null))
+                                    })
+                            } else {
+                                console.log("Could not play media, reason:", "no local description on connected peer client")
+                            }
+                        })
+                        .catch(err => console.log("Failed resolving user media", err)))
+            } else {
+                console.log("Signaling not connected")
+            }
+        } else {
+            console.log("Backend not configured")
+        }
     }
 
     const doPrintCodecs = () => {
-        
+        peerConnectionWithMedia({iceServers: []})
+            .then(result => result.connectMedia()
+                .then(() => {
+                    console.log("Peer client is now connected and media resolved", result)
+                    const mayLocalSessionDescription = result.localDescription()
+                    if (mayLocalSessionDescription !== null) {
+                        console.log("Local session description", mayLocalSessionDescription)
+                        readCodecs(mayLocalSessionDescription)
+                            .then(codecs => console.log(codecs))
+                            .catch(err => console.log("Failed reading codec data from session description", err))
+                    }
+                    result.disconnectMedia()
+                })
+                .catch(err => console.log("Failed resolving user media", err))
+            )
+            .catch(err => console.log("Failed connecting peer client", err))
     }
 
     const doPrintSDS = () => {
         
     }
 
-    const onSignalSocketConnected = (client: SignalingClient) => {
-        
-        console.log("Signal socket: connected")
-        setSignalingClient(client)
-
-        if (mediaClient !== null && backendConfig !== null && backendConfig.config.iceServers !== undefined) {
-            console.log("Calling all media")
-            mediaClient.startMedia(backendConfig.config.iceServers)
-        }
-
-    }
-    const onSignalSocketDisconnected = () => {
-        console.log("Signal socket: disconnected")
-    }
-    const onSignalSocketServerError = (e: SignalSocketError) => {
-        console.log(`Signal socket: server error, reason: ${e.reason}`)
-    }
-    const onSignalSocketConnectionProgress = (status: SignalSocketConnectStatus) => {
-        console.log("Signal socket: connection progress", status.state)
-    }
-    const onSignalSocketRemoteSDP = (sdp: string) => {
-        console.log("Signal socket: received data from signal server, streaming initiated, SDP", sdp)
-    }
-
-    // -- Media 
-
-    const onMediaClient = (client: MediaClient) => {
-        console.log("On media client", client)
-        setMediaClient(client)
-    }
-
-    const onMediaError = (e: MediaError) => {
-
-    }
-
-    const onMediaICECandidate = (candidate: RTCIceCandidate, sdp: RTCSessionDescription, sdpasstr: RTCSessionDescriptionAsString) => {
-        setLocalSDP(sdpasstr())
-        console.log(" ===========> ", sdpasstr())
-    }
-
     return (
         <>
-            <Media onMediaClient={onMediaClient}
-                onMediaError={onMediaError}
-                onICECandidate={onMediaICECandidate} />
-
-            <Signaling webSocketAddress={webSocketAddress}
-                onConnected={onSignalSocketConnected}
-                onConnectionProgress={onSignalSocketConnectionProgress}
-                onDisconnected={onSignalSocketDisconnected}
-                onRemoteSDP={onSignalSocketRemoteSDP}
-                onServerError={onSignalSocketServerError} />
-
             <h2>Pion WebRTC - Record a sample</h2>
             <br />
             <button id="connectBtn" onClick={doConnect}>Connect</button>

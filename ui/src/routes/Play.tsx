@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 import { getBackendConfig, BackendConfig } from '../backend/backend'
 import { ConnectedPeerClient, peerConnectionWithMedia } from '../media/media2';
@@ -10,10 +10,6 @@ const Play = () => {
     const [backendConfig, setBackendConfig] = useState<BackendConfig | null>(null)
     const [connectedSignaling, setConnectedSignaling] = useState<ConnectedSignaling | null>(null)
     const [connectedPeerClient, setConnectedPeerClient] = useState<ConnectedPeerClient | null>(null)
-
-
-    // const [mediaClient, setMediaClient] = useState<MediaClient | null>(null)
-    // const [localSDP, setLocalSDP] = useState<string>("")
 
     const doConnect = () => getBackendConfig()
         .then(config => signaling(config)
@@ -102,20 +98,26 @@ const Play = () => {
 
     return (
         <>
-            <h2>Pion WebRTC - Record a sample</h2>
-            <br />
-            <button id="connectBtn" onClick={doConnect}>Connect</button>
-            <button id="disconnectBtn" onClick={doDisconnect}>Disconnect</button>
-            <pre></pre>
-            <button id="playBtn" onClick={doPlay}>Play Stream</button>
-            <button id="codecsBtn" onClick={doPrintCodecs}>Available Codecs</button>
-            <button id="sdsBtn" onClick={doPrintSDS}>Session Desc</button>
-            <br /><br />
-            Video (Streaming playback)<br />
-            <video id="remoteVideo" width="640" height="480" autoPlay controls></video> <br />
-            <audio id="remoteAudio" autoPlay></audio> <br />
-            <br /><br />___<br />
-            <div id="logs"></div>
+            <h2>Pion WebRTC - Play the pre-recorded sample</h2>
+            <div><button id="codecsBtn" onClick={doPrintCodecs}>Available Codecs</button></div>
+            { connectedSignaling === null
+                ? <div><button id="connectBtn" onClick={doConnect}>Connect</button></div>
+                : <div>
+                    <button id="disconnectBtn" onClick={doDisconnect}>Disconnect</button>
+                    <button id="playBtn" onClick={doPlay}>Play Stream</button>
+                    {
+                        connectedPeerClient === null
+                            ? <></>
+                            : <div><button id="sdsBtn" onClick={doPrintSDS}>Session Desc</button></div>
+                    }
+                  </div> }
+            
+            <div>
+                <h3>Video (Streaming playback)</h3>
+                <video id="remoteVideo" width="640" height="480" autoPlay controls></video> <br />
+                <audio id="remoteAudio" autoPlay></audio> <br />
+            </div>
+            
         </>
     )
 }

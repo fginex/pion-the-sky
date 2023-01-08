@@ -33,7 +33,7 @@ export class ConnectedPeerClient {
 
     connectMedia() {
         const $self = this
-        return new Promise<void>((resolve, reject) => {
+        return new Promise<MediaStream>((resolve, reject) => {
             navigator.mediaDevices
                 .getUserMedia(getMediaConstraintsOrDefault(this.config.mediaStreamConstraints))
                     .then(stream => {
@@ -44,7 +44,7 @@ export class ConnectedPeerClient {
                             .then(d => {
                                 $self.stream = stream
                                 $self.peerConn.setLocalDescription(d)
-                                    .then(() => resolve())
+                                    .then(() => resolve(stream))
                                     .catch(err => {
                                         $self.disconnectMedia()
                                         const e: MediaError = {

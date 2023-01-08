@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { getBackendConfig, BackendConfig } from '../backend/backend'
 import { ConnectedPeerClient, peerConnectionWithMedia } from '../media/media2';
@@ -10,6 +10,8 @@ const Record = () => {
     const [backendConfig, setBackendConfig] = useState<BackendConfig | null>(null)
     const [connectedSignaling, setConnectedSignaling] = useState<ConnectedSignaling | null>(null)
     const [connectedPeerClient, setConnectedPeerClient] = useState<ConnectedPeerClient | null>(null)
+
+    const previewVideoRef = useRef<HTMLVideoElement | null>(null)
 
     const doConnect = () => getBackendConfig()
         .then(config => signaling(config)
@@ -47,8 +49,15 @@ const Record = () => {
             if (connectedSignaling !== null) {
                 peerConnectionWithMedia({iceServers: backendConfig.config.iceServers})
                     .then(result => result.connectMedia()
-                        .then(() => result.withCandidate().then(() => {
+                        .then(stream => result.withCandidate().then(() => {
+                            
                             const ld = result.localDescription()
+                            if (previewVideoRef !== null) {
+                                if (previewVideoRef.current !== null) {
+                                    previewVideoRef.current.srcObject = stream
+                                }
+                            }
+
                             if (ld !== null) {
                                 connectedSignaling.record(rtcSessionDescriptionToBase64(ld))
                                     .then(remoteDP => {
@@ -114,8 +123,7 @@ const Record = () => {
             
             <div>
                 <h3>Video (Recording preview)</h3>
-                <video id="localVideo" width="640" height="480" autoPlay></video> <br />
-                <audio id="localAudio" autoPlay></audio> <br />
+                <video ref={previewVideoRef} width="640" height="480" autoPlay></video> <br />
             </div>
             
         </>

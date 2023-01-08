@@ -1,7 +1,4 @@
-enum CodecType {
-    Audio = "audio",
-    Video = "video",
-}
+import { Buffer } from 'buffer'
 
 export interface AudioCodec {
     mimeType: string,
@@ -137,6 +134,10 @@ export const readCodecs = (sessionDescription: RTCSessionDescription): Promise<C
         }
 
     })
+}
+
+export const rtcSessionDescriptionToBase64 = (sdp: RTCSessionDescription): string => {
+    return Buffer.from(JSON.stringify(sdp)).toString("base64")
 }
 
 const rejectWithError = (message: string, reject: (reason?: any) => void) => {

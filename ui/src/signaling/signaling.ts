@@ -24,8 +24,8 @@ export class ConnectedSignaling {
 
     private socket: WebSocket
 
-    private inProgress: Promise<string> | null = null
-    private inProgressResolve: (value: string | PromiseLike<string>) => void = (_: string | PromiseLike<string>) => {}
+    private inProgress: Promise<RTCSessionDescription> | null = null
+    private inProgressResolve: (value: RTCSessionDescription | PromiseLike<RTCSessionDescription>) => void = (_: RTCSessionDescription | PromiseLike<RTCSessionDescription>) => {}
     private inProgressReject: (reason?: any) => void = (_?: any) => {}
 
     private close: Promise<Event> | null = null
@@ -81,7 +81,7 @@ export class ConnectedSignaling {
     }
 
     private signalMessage(op: SignalOp, sdp: string) {
-        this.inProgress = new Promise<string>((resolve, reject) => {
+        this.inProgress = new Promise<RTCSessionDescription>((resolve, reject) => {
             this.inProgressResolve = resolve.bind(this)
             this.inProgressReject = reject.bind(this)
         })
@@ -136,7 +136,8 @@ export class ConnectedSignaling {
                     let encodedSDP = evt.data
                     try {
                         let decodedSDP = Buffer.from(encodedSDP, "base64").toString()
-                        this.inProgressResolve(decodedSDP)
+                        const init: RTCSessionDescriptionInit = JSON.parse(decodedSDP)
+                        this.inProgressResolve(new RTCSessionDescription(init))
                     } catch (err) {
                         this.reject("failed decoding remote SDP", e)
                     }

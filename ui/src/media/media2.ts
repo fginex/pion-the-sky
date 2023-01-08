@@ -15,9 +15,20 @@ export class ConnectedPeerClient {
 
     private stream: MediaStream | null = null
 
+    private inProgressCandidate: Promise<void> | null = null
+    private inProgressCandidateResolve: (value: void | PromiseLike<void>) => void = (_: void | PromiseLike<void>) => {}
+    private inProgressCandidateReject: (reason?: any) => void = (_?: any) => {}
+
     constructor(pc: RTCPeerConnection, config: MediaResolveConfiguration) {
         this.peerConn = pc
         this.config = config
+        this.peerConn.onconnectionstatechange = this.onPeerConnectionStateChange.bind(this)
+        this.peerConn.onicecandidate = this.onPeerConnectionIceCandidate.bind(this)
+        this.peerConn.onicecandidateerror = this.onPeerConnectionIceCandidateError.bind(this)
+        this.peerConn.oniceconnectionstatechange = this.onPeerConnectionIceConnectionStateChange.bind(this)
+        this.peerConn.onicegatheringstatechange = this.onPeerIceGatheringStateChange.bind(this)
+        this.peerConn.onnegotiationneeded = this.onPeerNegotiationNeeded.bind(this)
+        this.peerConn.onsignalingstatechange = this.onPeerConnectionSignalingStateChange.bind(this)
     }
 
     connectMedia() {
@@ -78,8 +89,64 @@ export class ConnectedPeerClient {
         })
     }
 
+    withCandidate() {
+        this.inProgressCandidate = new Promise<void>((resolve, reject) => {
+            this.inProgressCandidateResolve = resolve.bind(this)
+            this.inProgressCandidateReject = reject.bind(this)
+        })
+        return this.inProgressCandidate
+    }
+
     localDescription() {
         return this.peerConn.localDescription
+    }
+
+    setRemoteDescription(rsdp: RTCSessionDescription) {
+        this.peerConn.setRemoteDescription(rsdp)
+    }
+
+    // PeerConnection callbacks:
+    private onPeerConnectionStateChange(ev: Event) {
+        // https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/connectionstatechange_event
+        console.log("Peer connection: connection state change", ev)
+    }
+
+    private onPeerConnectionIceCandidate(ev: RTCPeerConnectionIceEvent) {
+        // https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/icecandidate_event
+        if (ev.candidate !== null) {
+            if (this.inProgressCandidate !== null) {
+                this.inProgressCandidateResolve()
+            }
+            console.log("Peer connection: new ICE candidate", ev)
+        }
+    }
+
+    private onPeerConnectionIceCandidateError(ev: Event) {
+        // https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/icecandidateerror_event
+        console.log("Peer connection: new ICE candidate error", ev)
+    }
+
+    private onPeerConnectionIceConnectionStateChange(ev: Event) {
+        // https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/iceconnectionstatechange_event
+        if (this.peerConn !== null) {
+            console.log("Peer connection: ICE connection state change", ev, this.peerConn.iceConnectionState)
+        }
+    }
+
+    private onPeerIceGatheringStateChange(ev: Event) {
+        // https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/icegatheringstatechange_event
+        if (this.peerConn !== null) {
+            console.log("Peer connection: ICE gathering state change", ev, this.peerConn.iceGatheringState)
+        }
+    }
+
+    private onPeerNegotiationNeeded(ev: Event) {
+        // https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/negotiationneeded_event
+        console.log("Peer connection: negotiation needed", ev)
+    }
+
+    private onPeerConnectionSignalingStateChange(ev: Event) {
+        console.log("Peer connection: signaling state change", ev)
     }
 
 }

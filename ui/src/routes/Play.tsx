@@ -114,7 +114,7 @@ const Play = () => {
             
             <div>
                 <h3>Video (Streaming playback)</h3>
-                <video id="remoteVideo" width="640" height="480" autoPlay controls></video> <br />
+                <video id="remoteVideo" width="640" height="480" autoPlay></video> <br />
                 <audio id="remoteAudio" autoPlay></audio> <br />
             </div>
             

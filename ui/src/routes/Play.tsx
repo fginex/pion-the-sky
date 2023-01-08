@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 
-import { loadBackendData, getWebsocketAddress, BackEndData } from '../backend/backend'
+import { getBackendConfig, BackendConfig } from '../backend/backend'
 import { Media, MediaClient, MediaError, RTCSessionDescriptionAsString } from '../media/media';
 import { Signaling, SignalingClient, SignalOp, SignalSocketConnectStatus, SignalSocketError } from '../signaling/signaling'
 
@@ -9,27 +9,15 @@ import * as O from 'fp-ts/Option'
 const Play = () => {
 
     const [webSocketAddress, setWebsocketAddress] = useState<string | null>(null)
-    const [lastKnownBackEndData,setLastKnownBackEndData] = useState<BackEndData | null>(null)
+    const [backendConfig, setBackendConfig] = useState<BackendConfig | null>(null)
     const [signalingClient, setSignalingClient] = useState<SignalingClient | null>(null)
     const [mediaClient, setMediaClient] = useState<MediaClient | null>(null)
 
     const [localSDP, setLocalSDP] = useState<string>("")
 
-    const doConnect = () => {
-
-        loadBackendData().then(response => {
-            console.log("Loaded backend data", response.data)
-            setLastKnownBackEndData(response.data)
-            const wsAddress = getWebsocketAddress(response.data)
-            if (wsAddress === null) {
-                console.log(`Address ${response.data.address} does not to be a valid address`)
-            } else {
-                console.log("Loaded websocket address", wsAddress)
-                setWebsocketAddress(wsAddress)
-            }
-        }).catch(e => console.log("Failed fetching backend data", e))
-
-    }
+    const doConnect = () => getBackendConfig()
+        .then(config => setBackendConfig(config))
+        .catch(e => console.log("Failed fetching backend config", e))
 
     const doDisconnect = () => {
         setWebsocketAddress(null)
@@ -49,12 +37,12 @@ const Play = () => {
 
     const onSignalSocketConnected = (client: SignalingClient) => {
         
-        console.log("Signal socket: connected", mediaClient, lastKnownBackEndData)
+        console.log("Signal socket: connected")
         setSignalingClient(client)
 
-        if (mediaClient !== null && lastKnownBackEndData !== null && lastKnownBackEndData.iceServers !== undefined) {
+        if (mediaClient !== null && backendConfig !== null && backendConfig.config.iceServers !== undefined) {
             console.log("Calling all media")
-            mediaClient.startMedia(lastKnownBackEndData.iceServers)
+            mediaClient.startMedia(backendConfig.config.iceServers)
         }
 
     }

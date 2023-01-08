@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
@@ -12,14 +14,14 @@ import (
 
 // Server is a basic implementation of a frontend server.
 type Server struct {
-	backEndConfig *configs.BackEndConfig
+	backEndConfig *configs.BackendConfig
 	webRTCConfig  *configs.WebRTCConfig
 	logger        hclog.Logger
 }
 
 // ServeListen creates a new frontend server and attempts to listen.
-func ServeListen(backEndConfig *configs.BackEndConfig,
-	frontEndConfig *configs.FrontEndConfig,
+func ServeListen(backEndConfig *configs.BackendConfig,
+	frontEndConfig *configs.FrontendConfig,
 	webRTCConfig *configs.WebRTCConfig,
 	logger hclog.Logger) error {
 
@@ -29,14 +31,38 @@ func ServeListen(backEndConfig *configs.BackEndConfig,
 		webRTCConfig:  webRTCConfig,
 	}
 
-	fs := http.FileServer(http.Dir("./ui/build"))
-	http.HandleFunc("/backend", srv.backendHandler)
-	http.Handle("/", fs)
+	fileServer := http.FileServer(http.Dir(frontEndConfig.StaticDirectoryPath))
 
 	chanErr := make(chan error, 1)
 
 	go func() {
-		err := http.ListenAndServe(frontEndConfig.BindAddress, nil)
+		err := http.ListenAndServe(frontEndConfig.BindAddress, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+			if r.URL.Path == "/backend" {
+				srv.backendHandler(w, r)
+				return
+			}
+
+			path, err := filepath.Abs(r.URL.Path)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			path = filepath.Join(frontEndConfig.StaticDirectoryPath, path)
+
+			_, err = os.Stat(path)
+			if os.IsNotExist(err) {
+				// file does not exist, serve index.html
+				http.ServeFile(w, r, filepath.Join(frontEndConfig.StaticDirectoryPath, frontEndConfig.StaticDirectoryRootDocument))
+				return
+			} else if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			fileServer.ServeHTTP(w, r)
+		}))
 		if err != nil {
 			chanErr <- err
 		}

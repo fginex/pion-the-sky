@@ -12,15 +12,15 @@ import (
 // Server implements a WebRTC signal server used to locate and connect up with peers.
 // In this simple case the peer is the server.
 type Server struct {
-	frontEndConfig *configs.FrontEndConfig
+	frontEndConfig *configs.FrontendConfig
 	webRTCConfig   *configs.WebRTCConfig
 	logger         hclog.Logger
 	services       *WebRTCService
 }
 
 // ServeListen creates a new frontend server and attempts to listen.
-func ServeListen(backEndConfig *configs.BackEndConfig,
-	frontEndConfig *configs.FrontEndConfig,
+func ServeListen(backEndConfig *configs.BackendConfig,
+	frontEndConfig *configs.FrontendConfig,
 	webRTCConfig *configs.WebRTCConfig,
 	logger hclog.Logger) error {
 

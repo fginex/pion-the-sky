@@ -19,6 +19,9 @@ export class ConnectedPeerClient {
     private inProgressCandidateResolve: (value: void | PromiseLike<void>) => void = (_: void | PromiseLike<void>) => {}
     private inProgressCandidateReject: (reason?: any) => void = (_?: any) => {}
 
+    private audioTarget: HTMLAudioElement | null | undefined = undefined
+    private videoTarget: HTMLVideoElement | null | undefined = undefined
+
     constructor(pc: RTCPeerConnection, config: MediaResolveConfiguration) {
         this.peerConn = pc
         this.config = config
@@ -29,22 +32,36 @@ export class ConnectedPeerClient {
         this.peerConn.onicegatheringstatechange = this.onPeerIceGatheringStateChange.bind(this)
         this.peerConn.onnegotiationneeded = this.onPeerNegotiationNeeded.bind(this)
         this.peerConn.onsignalingstatechange = this.onPeerConnectionSignalingStateChange.bind(this)
+        this.peerConn.ontrack = this.onPeerConnectionTrack.bind(this)
     }
 
-    connectMedia() {
+    connectMedia(audioTarget?: HTMLAudioElement | null, videoTarget?: HTMLVideoElement | null) {
         const $self = this
         return new Promise<MediaStream>((resolve, reject) => {
             navigator.mediaDevices
                 .getUserMedia(getMediaConstraintsOrDefault(this.config.mediaStreamConstraints))
                     .then(stream => {
                         stream.getTracks().forEach(function (track) {
-                            $self.peerConn.addTrack(track, stream)
+                            const sender = $self.peerConn.addTrack(track, stream)
+                            $self.peerConn.addTransceiver(track.kind, { direction: 'sendrecv' })
                         })
+
+                        stream.getVideoTracks().forEach(track => {
+                            console.log("Video track settings: ", track.getCapabilities(), track.getConstraints(), track.getSettings(), track)
+                        })
+                        stream.getAudioTracks().forEach(track => {
+                            console.log("Audio track settings: ", track.getCapabilities(), track.getConstraints(), track.getSettings(), track)
+                        })
+
                         $self.peerConn.createOffer()
                             .then(d => {
                                 $self.stream = stream
                                 $self.peerConn.setLocalDescription(d)
-                                    .then(() => resolve(stream))
+                                    .then(() => {
+                                        resolve(stream)
+                                            $self.audioTarget = audioTarget
+                                            $self.videoTarget = videoTarget
+                                    })
                                     .catch(err => {
                                         $self.disconnectMedia()
                                         const e: MediaError = {
@@ -149,6 +166,28 @@ export class ConnectedPeerClient {
         console.log("Peer connection: signaling state change", ev)
     }
 
+    private onPeerConnectionTrack(ev: RTCTrackEvent) {
+        console.log("Peer connection: received a track:", ev)
+        if (ev.track.kind === "audio") {
+            if (this.audioTarget !== undefined) {
+                if (this.audioTarget !== null) {
+                    const $a = this.audioTarget
+                    console.log("Received ", ev.streams.length, " audio streams")
+                    //ev.streams.forEach(stream => $a.srcObject = stream)
+                }
+            }
+        }
+        if (ev.track.kind === "video") {
+            if (this.videoTarget !== undefined) {
+                if (this.videoTarget !== null) {
+                    const $v = this.videoTarget
+                    console.log("Received ", ev.streams.length, " video streams")
+                    ev.streams.forEach(stream => $v.srcObject = stream)
+                }
+            }
+        }
+    }
+
 }
 
 export const peerConnectionWithMedia = (config: MediaResolveConfiguration): Promise<ConnectedPeerClient> => {
@@ -176,5 +215,6 @@ const getMediaConstraintsOrDefault = (mediaStreamConstraints?: MediaStreamConstr
     if (mediaStreamConstraints !== undefined) {
         return mediaStreamConstraints
     }
-    return {video: true, audio: true}
+    //return {video: true, audio: true}
+    return {video: {frameRate: {max: 30}}, audio: true}
 }

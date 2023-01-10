@@ -136,10 +136,6 @@ export const readCodecs = (sessionDescription: RTCSessionDescription): Promise<C
     })
 }
 
-export const rtcSessionDescriptionToBase64 = (sdp: RTCSessionDescription): string => {
-    return Buffer.from(JSON.stringify(sdp)).toString("base64")
-}
-
 const rejectWithError = (message: string, reject: (reason?: any) => void) => {
     const e: CodecsReadError = {
         reason: message

@@ -40,24 +40,24 @@ export class ConnectedSignaling {
         this.socket.onmessage = this.onSocketMessage.bind(this)
     }
 
-    play(sdp: string) {
+    play(sdp: RTCSessionDescription) {
         // defences
         let state = this.validState()
         if (state !== null) {
             return state
         }
         // do work
-        return this.signalMessage(SignalOp.Play, sdp)
+        return this.signalMessage(SignalOp.Play, rtcSessionDescriptionToBase64(sdp))
     }
 
-    record(sdp: string) {
+    record(sdp: RTCSessionDescription) {
         // defences
         let state = this.validState()
         if (state !== null) {
             return state
         }
         // do work
-        return this.signalMessage(SignalOp.Record, sdp)
+        return this.signalMessage(SignalOp.Record, rtcSessionDescriptionToBase64(sdp))
     }
 
     private validState() {
@@ -172,4 +172,9 @@ export const signaling = (backendConfig: BackendConfig): Promise<ConnectedSignal
             socket.onerror = (e => reject(e))
         } catch (e) { reject(e) }
     })
+}
+
+
+export const rtcSessionDescriptionToBase64 = (sdp: RTCSessionDescription): string => {
+    return Buffer.from(JSON.stringify(sdp)).toString("base64")
 }

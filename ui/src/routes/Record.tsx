@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 
 import { getBackendConfig, BackendConfig } from '../backend/backend'
 import { ConnectedPeerClient, peerConnectionWithMedia } from '../media/media2';
-import { readCodecs, rtcSessionDescriptionToBase64 } from '../media/sdp';
+import { readCodecs } from '../media/sdp';
 import { signaling, ConnectedSignaling } from '../signaling/signaling'
 
 const Record = () => {
@@ -10,6 +10,7 @@ const Record = () => {
     const [backendConfig, setBackendConfig] = useState<BackendConfig | null>(null)
     const [connectedSignaling, setConnectedSignaling] = useState<ConnectedSignaling | null>(null)
     const [connectedPeerClient, setConnectedPeerClient] = useState<ConnectedPeerClient | null>(null)
+    const [recordingInProgress, setRecordingInProgress] = useState(false)
 
     const previewVideoRef = useRef<HTMLVideoElement | null>(null)
 
@@ -58,22 +59,27 @@ const Record = () => {
                                 }
                             }
 
-                            if (ld !== null) {
-                                connectedSignaling.record(rtcSessionDescriptionToBase64(ld))
-                                    .then(remoteDP => {
-                                        console.log("Recording...", remoteDP)
-                                        result.setRemoteDescription(remoteDP)
-                                        setConnectedPeerClient(result)
-                                    })
-                                    .catch(err => {
-                                        console.log("Could not record media, reason:", err)
-                                        result.disconnectMedia().finally(() => setConnectedPeerClient(null))
-                                    })
-                            } else {
-                                console.log("Candidate received but no local session description")
-                            }
-                        }).catch(err => console.log("Error on candidate wait", err)))
-                        .catch(err => console.log("Failed resolving user media", err)))
+                            setTimeout(() => {
+                                if (ld !== null) {
+                                    connectedSignaling.record(ld)
+                                        .then(remoteDP => {
+                                            console.log("Recording...", remoteDP)
+                                            result.setRemoteDescription(remoteDP)
+                                            setRecordingInProgress(true)
+                                            setConnectedPeerClient(result)
+                                        })
+                                        .catch(err => {
+                                            console.log("Could not record media, reason:", err)
+                                            result.disconnectMedia().finally(() => setConnectedPeerClient(null))
+                                        })
+                                } else {
+                                    console.log("Candidate received but no local session description")
+                                }
+                            }, 5000)
+
+                        })
+                        .catch(err => console.log("Error on candidate wait", err)))
+                    .catch(err => console.log("Failed resolving user media", err)))
             } else {
                 console.log("Signaling not connected")
             }
@@ -114,6 +120,7 @@ const Record = () => {
                 : <div>
                     <button id="disconnectBtn" onClick={doDisconnect}>Disconnect</button>
                     <button id="playBtn" onClick={doRecord}>Record the Stream</button>
+                    { recordingInProgress ? <span>Recording in progress</span> : <></> }
                     {
                         connectedPeerClient === null
                             ? <></>
@@ -123,7 +130,7 @@ const Record = () => {
             
             <div>
                 <h3>Video (Recording preview)</h3>
-                <video ref={previewVideoRef} width="640" height="480" autoPlay></video> <br />
+                <video ref={previewVideoRef} width="640" height="480" autoPlay muted></video> <br />
             </div>
             
         </>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 import { getBackendConfig, BackendConfig } from '../backend/backend'
 import { ConnectedPeerClient, peerConnectionWithMedia } from '../media/media2';
@@ -10,6 +10,9 @@ const Play = () => {
     const [backendConfig, setBackendConfig] = useState<BackendConfig | null>(null)
     const [connectedSignaling, setConnectedSignaling] = useState<ConnectedSignaling | null>(null)
     const [connectedPeerClient, setConnectedPeerClient] = useState<ConnectedPeerClient | null>(null)
+
+    const remoteAudioRef = useRef<HTMLAudioElement | null>(null)
+    const remoteVideoRef = useRef<HTMLVideoElement | null>(null)
 
     const doConnect = () => getBackendConfig()
         .then(config => signaling(config)
@@ -46,25 +49,29 @@ const Play = () => {
         if (backendConfig !== null) {
             if (connectedSignaling !== null) {
                 peerConnectionWithMedia({iceServers: backendConfig.config.iceServers})
-                    .then(result => result.connectMedia()
-                        .then(() => {
-                            console.log("Peer client is now connected", result)
-                            const ld = result.localDescription()
-                            if (ld !== null) {
-                                connectedSignaling.play(ld.sdp)
-                                    .then(() => {
-                                        console.log("Playing...")
-                                        setConnectedPeerClient(result)
-                                    })
-                                    .catch(err => {
-                                        console.log("Could not play media, reason:", err)
-                                        result.disconnectMedia().finally(() => setConnectedPeerClient(null))
-                                    })
-                            } else {
-                                console.log("Could not play media, reason:", "no local description on connected peer client")
-                            }
+                    .then(result => result.connectMedia(remoteAudioRef.current, remoteVideoRef.current)
+                        .then(_ => result.withCandidate().then(() => {
+
+                                console.log("Peer client is now connected", result)
+                                const ld = result.localDescription()
+                                if (ld !== null) {
+                                    connectedSignaling.play(ld)
+                                        .then(remoteDP => {
+                                            console.log("Playing...", remoteDP)
+                                            result.setRemoteDescription(remoteDP)
+                                            setConnectedPeerClient(result)
+                                        })
+                                        .catch(err => {
+                                            console.log("Could not play media, reason:", err)
+                                            result.disconnectMedia().finally(() => setConnectedPeerClient(null))
+                                        })
+                                } else {
+                                    console.log("Could not play media, reason:", "no local description on connected peer client")
+                                }
+
                         })
-                        .catch(err => console.log("Failed resolving user media", err)))
+                        .catch(err => console.log("Error on candidate wait", err)))
+                    .catch(err => console.log("Failed resolving user media", err)))
             } else {
                 console.log("Signaling not connected")
             }
@@ -114,8 +121,8 @@ const Play = () => {
             
             <div>
                 <h3>Video (Streaming playback)</h3>
-                <video id="remoteVideo" width="640" height="480" autoPlay></video> <br />
-                <audio id="remoteAudio" autoPlay></audio> <br />
+                <video ref={remoteVideoRef} id="remoteVideo" width="640" height="480" autoPlay controls></video> <br />
+                <audio ref={remoteAudioRef} id="remoteAudio" autoPlay></audio> <br />
             </div>
             
         </>

@@ -11,8 +11,9 @@ import (
 	"github.com/pion/sdp/v2"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
-	"github.com/pion/webrtc/v3/pkg/media/ivfwriter"
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
+
+	"github.com/radekg/boos/pkg/media/ivfwriter"
 )
 
 // PeerClientType represents the types of signal messages

@@ -65,8 +65,42 @@ func CreateNewWebRTCService(webRTCConfig *configs.WebRTCConfig, logger hclog.Log
 		return nil, err
 	}
 
-	if err := svc.mediaEngine.RegisterDefaultCodecs(); err != nil {
-		svc.logger.Error("Failed registering default codecs", "reason", err)
+	// Select the exact codecs we're prepared to handle. Otherwise peers may
+	// negotiate something that we're not prepared to handle.
+	// Preferably, we should be able to simply register the default set of codecs
+	// but we need more logic around recording handling.
+	// For example, Safari will negotiate H264.
+
+	// if err := svc.mediaEngine.RegisterDefaultCodecs(); err != nil {
+	//	svc.logger.Error("Failed registering default codecs", "reason", err)
+	//	return nil, err
+	// }
+
+	if err := svc.mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType:     webrtc.MimeTypeOpus,
+			ClockRate:    48000,
+			Channels:     2,
+			SDPFmtpLine:  "minptime=10;useinbandfec=1",
+			RTCPFeedback: nil,
+		},
+		PayloadType: 111,
+	}, webrtc.RTPCodecTypeAudio); err != nil {
+		svc.logger.Error("Failed registering audio codec", "reason", err)
+		return nil, err
+	}
+
+	if err := svc.mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType:     webrtc.MimeTypeVP8,
+			ClockRate:    90000,
+			Channels:     0,
+			SDPFmtpLine:  "max-fs=12288;max-fr=30",
+			RTCPFeedback: nil,
+		},
+		PayloadType: 96,
+	}, webrtc.RTPCodecTypeVideo); err != nil {
+		svc.logger.Error("Failed registering audio codec", "reason", err)
 		return nil, err
 	}
 
@@ -197,7 +231,7 @@ func (svc *WebRTCService) CreatePlaybackConnection(client *PeerClient) error {
 			}()
 
 			go func() {
-				ivf, header, ivfErr := ivfreader.NewWith(bytes.NewReader(avr.video.Bytes()))
+				ivf, _, ivfErr := ivfreader.NewWith(bytes.NewReader(avr.video.Bytes()))
 				if ivfErr != nil {
 					panic(ivfErr)
 				}
@@ -205,19 +239,11 @@ func (svc *WebRTCService) CreatePlaybackConnection(client *PeerClient) error {
 				// Wait for connection established
 				<-iceConnectedCtx.Done()
 
-				// Send our video file frame at a time. Pace our sending so we send it at the same speed it should be played back as.
-				// This isn't required since the video is timestamped, but we will such much higher loss if we send all at once.
-				//
-				// It is important to use a time.Ticker instead of time.Sleep because
-				// * avoids accumulating skew, just calling time.Sleep didn't compensate for the time spent parsing the data
-				// * works around latency issues with Sleep (see https://github.com/golang/go/issues/44343)
-				duration := time.Millisecond * time.Duration((float32(header.TimebaseNumerator)/float32(header.TimebaseDenominator))*2300)
+				lastTs := uint64(0)
 				for {
-					ctx, ctxCancelFunc := context.WithTimeout(context.Background(), duration)
 					frame, header, ivfErr := ivf.ParseNextFrame()
 					if errors.Is(ivfErr, io.EOF) {
 						fmt.Printf("All video frames parsed and sent")
-						ctxCancelFunc()
 						break
 					}
 
@@ -229,7 +255,23 @@ func (svc *WebRTCService) CreatePlaybackConnection(client *PeerClient) error {
 						panic(ivfErr)
 					}
 
-					<-ctx.Done()
+					var diffMs int64
+					if lastTs > 0 {
+						diff := header.Timestamp - lastTs
+						diffMs = int64(diff)
+					}
+					lastTs = header.Timestamp
+
+					if diffMs > 0 {
+						// Okay, what I'm seeing ts that various input devices send various frame rates.
+						// What's even more interesting, for an Apple Screen camera, I see variable number of frames
+						// in every second of a stream.
+						// Because of that, I assume that the only correct way to recreate the pace of the video
+						// is to calculate the exact difference between frames in milliseconds.
+						// Basically, there's no such thing as fps, it's maximum fps.
+						d := time.Duration(diffMs/100) * time.Millisecond
+						<-time.After(d)
+					}
 
 				}
 			}()
@@ -399,6 +441,24 @@ func VP8FrameHeaderToString(fh *vp8.FrameHeader) string {
 		fh.Height,
 		fh.XScale,
 		fh.YScale,
+	)
+
+}
+
+// VP8FrameHeaderToString compiles a vp8 video frame header fields into a string for logging.
+func RTPHeaderToString(fh rtp.Header) string {
+	return fmt.Sprintf("VP8:{Timestamp:%d SequenceNumber:%d, CSRC: %v, Extension: %v, ExtensionProfile: %v, Extensions: %v, Marker: %v, Padding: %v, PayloadType: %v, SSRC: %v, Version: %v}",
+		fh.Timestamp,
+		fh.SequenceNumber,
+		fh.CSRC,
+		fh.Extension,
+		fh.ExtensionProfile,
+		fh.Extensions,
+		fh.Marker,
+		fh.Padding,
+		fh.PayloadType,
+		fh.SSRC,
+		fh.Version,
 	)
 
 }

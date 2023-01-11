@@ -20,8 +20,8 @@ var Command = &cobra.Command{
 }
 
 var (
-	backEndConfig  = configs.NewBackEndConfig()
-	frontEndConfig = configs.NewFrontEndConfig()
+	backEndConfig  = configs.NewBackendConfig()
+	frontEndConfig = configs.NewFrontendConfig()
 	logConfig      = configs.NewLoggingConfig()
 	webRTCConfig   = configs.NewWebRTCConfig()
 )

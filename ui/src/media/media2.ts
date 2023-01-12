@@ -46,12 +46,13 @@ export class ConnectedPeerClient {
                             $self.peerConn.addTransceiver(track.kind, { direction: 'sendrecv' })
                         })
 
-                        stream.getVideoTracks().forEach(track => {
-                            console.log("Video track settings: ", track.getCapabilities(), track.getConstraints(), track.getSettings(), track)
-                        })
-                        stream.getAudioTracks().forEach(track => {
-                            console.log("Audio track settings: ", track.getCapabilities(), track.getConstraints(), track.getSettings(), track)
-                        })
+                        // track.GetCapabilities does not appear to exist in Firefox...
+                        //stream.getVideoTracks().forEach(track => {
+                        //    console.log("Video track settings: ", track.getCapabilities(), track.getConstraints(), track.getSettings(), track)
+                        //})
+                        //stream.getAudioTracks().forEach(track => {
+                        //    console.log("Audio track settings: ", track.getCapabilities(), track.getConstraints(), track.getSettings(), track)
+                        //})
 
                         $self.peerConn.createOffer()
                             .then(d => {
@@ -81,6 +82,7 @@ export class ConnectedPeerClient {
                             })
                     })
                     .catch(err => {
+                        $self.disconnectMedia()
                         const e: MediaError = {
                             reason: "Failed resolving user media",
                             cause: err,

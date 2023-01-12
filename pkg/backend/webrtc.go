@@ -17,9 +17,11 @@ import (
 	"github.com/pion/webrtc/v2/pkg/media/oggreader"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
-	"github.com/pion/webrtc/v3/pkg/media/ivfreader"
 	"github.com/radekg/boos/configs"
 	"golang.org/x/image/vp8"
+
+	"github.com/radekg/boos/pkg/media/codecs"
+	"github.com/radekg/boos/pkg/media/video"
 )
 
 var (
@@ -76,32 +78,19 @@ func CreateNewWebRTCService(webRTCConfig *configs.WebRTCConfig, logger hclog.Log
 	//	return nil, err
 	// }
 
-	if err := svc.mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
-		RTPCodecCapability: webrtc.RTPCodecCapability{
-			MimeType:     webrtc.MimeTypeOpus,
-			ClockRate:    48000,
-			Channels:     2,
-			SDPFmtpLine:  "minptime=10;useinbandfec=1",
-			RTCPFeedback: nil,
-		},
-		PayloadType: 111,
-	}, webrtc.RTPCodecTypeAudio); err != nil {
-		svc.logger.Error("Failed registering audio codec", "reason", err)
-		return nil, err
+	audioCodecs := codecs.AudioCodecs()
+	for _, c := range audioCodecs {
+		if err := svc.mediaEngine.RegisterCodec(c, webrtc.RTPCodecTypeAudio); err != nil {
+			svc.logger.Error("Failed registering audio codec", "reason", err)
+			return nil, err
+		}
 	}
-
-	if err := svc.mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
-		RTPCodecCapability: webrtc.RTPCodecCapability{
-			MimeType:     webrtc.MimeTypeVP8,
-			ClockRate:    90000,
-			Channels:     0,
-			SDPFmtpLine:  "max-fs=12288;max-fr=30",
-			RTCPFeedback: nil,
-		},
-		PayloadType: 96,
-	}, webrtc.RTPCodecTypeVideo); err != nil {
-		svc.logger.Error("Failed registering audio codec", "reason", err)
-		return nil, err
+	videoCodecs := codecs.VideoCodecs()
+	for _, c := range videoCodecs {
+		if err := svc.mediaEngine.RegisterCodec(c, webrtc.RTPCodecTypeVideo); err != nil {
+			svc.logger.Error("Failed registering audio codec", "reason", err)
+			return nil, err
+		}
 	}
 
 	svc.api = webrtc.NewAPI(webrtc.WithMediaEngine(svc.mediaEngine), webrtc.WithInterceptorRegistry(i))
@@ -159,10 +148,13 @@ func (svc *WebRTCService) CreateRecordingConnection(client *PeerClient) error {
 			codec := track.Codec()
 			if strings.EqualFold(codec.MimeType, webrtc.MimeTypeOpus) {
 				svc.logger.Info("Got Opus track, saving to disk as output.opus (48 kHz, 2 channels)")
-				client.recordAudioTrack(track)
+				client.recordAudioTrackOpus(track)
 			} else if strings.EqualFold(codec.MimeType, webrtc.MimeTypeVP8) {
 				svc.logger.Info("Got VP8 track, saving to disk as output.ivf")
-				client.recordVideoTrack(track)
+				client.recordVideoTrackVP8(track)
+			} else if strings.EqualFold(codec.MimeType, webrtc.MimeTypeH264) {
+				svc.logger.Info("Got H264 track, saving to disk as output.h264")
+				client.recordVideoTrackH264(track)
 			}
 		}()
 	})
@@ -231,48 +223,34 @@ func (svc *WebRTCService) CreatePlaybackConnection(client *PeerClient) error {
 			}()
 
 			go func() {
-				ivf, _, ivfErr := ivfreader.NewWith(bytes.NewReader(avr.video.Bytes()))
-				if ivfErr != nil {
-					panic(ivfErr)
+				samplingReader, err := video.GetReader(bytes.NewReader(avr.video.Bytes()), svc.logger.Named("video-reader"))
+				if err != nil {
+					panic(err)
 				}
-
 				// Wait for connection established
 				<-iceConnectedCtx.Done()
-
-				lastTs := uint64(0)
+				// Send frames:
 				for {
-					frame, header, ivfErr := ivf.ParseNextFrame()
-					if errors.Is(ivfErr, io.EOF) {
-						fmt.Printf("All video frames parsed and sent")
-						break
+					sampleAndTimingHint, err := samplingReader.NextSample()
+					if err != nil {
+						if errors.Is(err, io.EOF) {
+							fmt.Printf("All video frames parsed and sent")
+							break
+						}
+						panic(err)
 					}
-
-					if ivfErr != nil {
-						panic(ivfErr)
+					if sampleWriteError := videoTrack.WriteSample(sampleAndTimingHint.Sample); sampleWriteError != nil {
+						panic(sampleWriteError)
 					}
-
-					if ivfErr = videoTrack.WriteSample(media.Sample{Data: frame, PacketTimestamp: uint32(header.Timestamp), Duration: time.Second}); ivfErr != nil {
-						panic(ivfErr)
-					}
-
-					var diffMs int64
-					if lastTs > 0 {
-						diff := header.Timestamp - lastTs
-						diffMs = int64(diff)
-					}
-					lastTs = header.Timestamp
-
-					if diffMs > 0 {
+					if sampleAndTimingHint.TimingHint > 0 {
 						// Okay, what I'm seeing ts that various input devices send various frame rates.
 						// What's even more interesting, for an Apple Screen camera, I see variable number of frames
 						// in every second of a stream.
 						// Because of that, I assume that the only correct way to recreate the pace of the video
 						// is to calculate the exact difference between frames in milliseconds.
 						// Basically, there's no such thing as fps, it's maximum fps.
-						d := time.Duration(diffMs/100) * time.Millisecond
-						<-time.After(d)
+						<-time.After(sampleAndTimingHint.TimingHint)
 					}
-
 				}
 			}()
 		}

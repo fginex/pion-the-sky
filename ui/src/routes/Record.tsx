@@ -59,6 +59,8 @@ const Record = () => {
                                 }
                             }
 
+                            console.log("Have candidate, setting timeouts...")
+
                             setTimeout(() => {
                                 if (ld !== null) {
                                     connectedSignaling.record(ld)

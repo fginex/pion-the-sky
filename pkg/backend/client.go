@@ -11,9 +11,11 @@ import (
 	"github.com/pion/sdp/v2"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
+	"github.com/pion/webrtc/v3/pkg/media/h264writer"
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 
 	"github.com/radekg/boos/pkg/media/ivfwriter"
+	"github.com/radekg/boos/pkg/media/video"
 )
 
 // PeerClientType represents the types of signal messages
@@ -265,20 +267,31 @@ func (c *PeerClient) recordTrack(writer media.Writer, track *webrtc.TrackRemote)
 	return nil
 }
 
-func (c *PeerClient) recordAudioTrack(track *webrtc.TrackRemote) error {
-	audiowriter, err := oggwriter.NewWith(c.audioBuf, 48000, 2)
+func (c *PeerClient) recordAudioTrackOpus(track *webrtc.TrackRemote) error {
+	w, err := oggwriter.NewWith(c.audioBuf, 48000, 2)
 	if err != nil {
 		return err
 	}
-	return c.recordTrack(audiowriter, track)
+	return c.recordTrack(w, track)
 }
 
-func (c *PeerClient) recordVideoTrack(track *webrtc.TrackRemote) error {
-	videowriter, err := ivfwriter.NewWith(c.videoBuf)
+func (c *PeerClient) recordVideoTrackH264(track *webrtc.TrackRemote) error {
+	// TODO: abstract away at a later stage...
+	c.videoBuf.Reset()
+	c.videoBuf.Write(video.HeaderH264())
+	w := h264writer.NewWith(c.videoBuf)
+	return c.recordTrack(w, track)
+}
+
+func (c *PeerClient) recordVideoTrackVP8(track *webrtc.TrackRemote) error {
+	// TODO: abstract away at a later stage...
+	c.videoBuf.Reset()
+	c.videoBuf.Write(video.HeaderVP8())
+	w, err := ivfwriter.NewWith(c.videoBuf)
 	if err != nil {
 		return err
 	}
-	return c.recordTrack(videowriter, track)
+	return c.recordTrack(w, track)
 }
 
 func (c *PeerClient) sendError(errMsg string) error {
@@ -296,3 +309,5 @@ func (c *PeerClient) sendError(errMsg string) error {
 
 	return nil
 }
+
+// Okay, no place to stuff media type in right now, let's take a shortcut:

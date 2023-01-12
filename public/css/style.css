@@ -1,8 +1,0 @@
-textarea {
-    width: 500px;
-    min-height: 200px;
-}
-video {
-    -webkit-transform: scaleX(-1);
-    transform: scaleX(-1);
-}

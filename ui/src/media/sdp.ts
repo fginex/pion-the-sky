@@ -87,11 +87,18 @@ export const readCodecs = (sessionDescription: RTCSessionDescription): Promise<C
                                 response.audio[codecId].sdpFmtpLine = parts[1]
                             }
                         } else if (line.indexOf("a=rtcp-fb:") === 0) {
-                            var parts = line.split(" ")
-                            var codecId = parts[0].replace("a=rtcp-fb:", "")
+                            var spaceIndex = line.indexOf(" ")
+                            if (spaceIndex < 0) {
+                                continue // TODO: log this
+                            }
+                            var lineStartWithCodecId = line.substring(0, spaceIndex).replace("a=rtcp-fb:", "")
+                            var codecId = lineStartWithCodecId
                             if (arrayContains(audioCodecIds, codecId)) {
-                                ensureAudioCodec(codecId, response)
-                                response.audio[codecId].rtcpFb.push(parts[1])
+                                ensureVideoCodec(codecId, response)
+                                var remainder = line.substring(spaceIndex+1, line.length)
+                                if (!arrayContains(response.audio[codecId].rtcpFb, remainder)) {
+                                    response.audio[codecId].rtcpFb.push(remainder)
+                                }
                             }
                         }
                     } // end audio codecs lookup
@@ -115,11 +122,18 @@ export const readCodecs = (sessionDescription: RTCSessionDescription): Promise<C
                                 response.video[codecId].sdpFmtpLine = parts[1]
                             }
                         } else if (line.indexOf("a=rtcp-fb:") === 0) {
-                            var parts = line.split(" ")
-                            var codecId = parts[0].replace("a=rtcp-fb:", "")
+                            var spaceIndex = line.indexOf(" ")
+                            if (spaceIndex < 0) {
+                                continue // TODO: log this
+                            }
+                            var lineStartWithCodecId = line.substring(0, spaceIndex).replace("a=rtcp-fb:", "")
+                            var codecId = lineStartWithCodecId
                             if (arrayContains(videoCodecIds, codecId)) {
                                 ensureVideoCodec(codecId, response)
-                                response.video[codecId].rtcpFb.push(parts[1])
+                                var remainder = line.substring(spaceIndex+1, line.length)
+                                if (!arrayContains(response.video[codecId].rtcpFb, remainder)) {
+                                    response.video[codecId].rtcpFb.push(remainder)
+                                }
                             }
                         }
                     } // end video codecs lookup
